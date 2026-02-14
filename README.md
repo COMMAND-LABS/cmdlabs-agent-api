@@ -53,3 +53,7 @@ python scripts/load_test_sweep.py \
   --max-request-seconds 180
   --fail-threshold 0.5
 ```
+
+## TRIGGER CICD
+
+1
