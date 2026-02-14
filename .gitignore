@@ -1,0 +1,28 @@
+# Environment and secrets – do not commit
+.env
+.env.*
+!.env.example
+
+# Service account / keys
+*-sa.json
+*-sa-key.json
+*.pem
+
+# Virtual environments
+.venv
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.idea/
+.DS_Store
