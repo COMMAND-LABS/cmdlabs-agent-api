@@ -33,7 +33,7 @@ Completion API runs on port **4100** by default.
 python scripts/load_test_agents.py \
   --base-url http://127.0.0.1:4100 \
   --agent-id 11 \
-  --jwt "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0YWRAY21kbGFicy5pbyIsImlkIjoxLCJleHAiOjE3NzEwODEyNzR9.LRDnCzvWD9-dnY0gGSgKSnQm8xfiOjt-svNUR5YOhF0" \
+  --jwt "<JWT_HERE>" \
   --users 24 \
   --rounds 1 \
   --prompt "Give me a short summary of what you can do." \
@@ -46,7 +46,7 @@ python scripts/load_test_agents.py \
 python scripts/load_test_sweep.py \
   --base-url http://127.0.0.1:4100 \
   --agent-id 11 \
-  --jwt "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0YWRAY21kbGFicy5pbyIsImlkIjoxLCJleHAiOjE3NzEwODEyNzR9.LRDnCzvWD9-dnY0gGSgKSnQm8xfiOjt-svNUR5YOhF0" \
+  --jwt "<JWT_HERE>" \
   --steps 1,2,4,8,12,16,20,24,32,48,64 \
   --rounds-per-step 1 \
   --prompt "Give me a short summary of what you can do." \
