@@ -29,7 +29,7 @@ Completion API runs on port **4100** by default.
 
 ## Testing
 
-```sh
+````sh
 python scripts/load_test_agents.py \
   --base-url http://127.0.0.1:4100 \
   --agent-id 11 \
@@ -52,8 +52,8 @@ python scripts/load_test_sweep.py \
   --prompt "Give me a short summary of what you can do." \
   --max-request-seconds 180
   --fail-threshold 0.5
-```
+````
 
 ## TRIGGER CICD
 
-2
+3
