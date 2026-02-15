@@ -18,6 +18,7 @@ from src.deps import db_dependency, auth_dependency
 from src.db.database import SessionLocal
 from src.db.models import Agent, ChatSession, ChatMessage, Credential
 from src.db.service_name import ServiceName
+from src.routers.agents.access import load_agent_with_access_check
 from src.routers.credentials.encryption import get_credential_value
 from src.core.schemas.ChatSessionPrompt import ChatSessionPrompt
 from slowapi import Limiter
@@ -107,17 +108,15 @@ async def generator(
     try:
         account_id = int(auth['id']) if isinstance(auth['id'], str) else auth['id']
 
+        # Access check: owner OR member of a group granted access to this agent
         agent = _db_retry_once(
             db,
             "load agent",
-            lambda: db.query(Agent).filter(
-                Agent.id == agent_id,
-                Agent.account_id == account_id
-            ).first(),
+            lambda: load_agent_with_access_check(db, account_id, agent_id),
         )
 
         if not agent:
-            yield sse_error("Agent not found", "The specified agent was not found or does not belong to you.")
+            yield sse_error("Agent not found", "The specified agent was not found or you do not have access.")
             return
 
         if not agent.config:
