@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, UUID, JSON, DateTime, func, Double, Float, Enum, Text, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, UUID, JSON, DateTime, func, Double, Float, Enum, Text, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from .database import Base
@@ -241,9 +241,83 @@ class Agent(Base):
     config = Column(JSON, nullable=True)  # JSONB in PostgreSQL, JSON in SQLAlchemy
     
     chat_sessions = relationship('ChatSession', back_populates='agent', cascade='all, delete-orphan')
+    access_grants = relationship('AgentAccessGrant', back_populates='agent', cascade='all, delete-orphan')
     
     def __repr__(self):
         return f'<Agent {self.id}: {self.name}>'
+
+
+# ---------------------------------------------------------------------------
+# Access groups – allow agents to be shared with groups of accounts
+# Tables are created/migrated from kalygo3-ai-api; these models are the
+# completion-api mirror so SQLAlchemy can query the same shared database.
+# ---------------------------------------------------------------------------
+
+class AccessGroup(Base):
+    """
+    Named access group owned by an account.
+    The owner can add/remove members and agents can be granted to the group.
+    """
+    __tablename__ = 'access_groups'
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    owner_account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    owner = relationship('Account', foreign_keys=[owner_account_id])
+    members = relationship('AccessGroupMember', back_populates='access_group', cascade='all, delete-orphan')
+    agent_grants = relationship('AgentAccessGrant', back_populates='access_group', cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<AccessGroup {self.id}: {self.name}>'
+
+
+class AccessGroupMember(Base):
+    """
+    Membership link: an account belongs to an access group.
+    Only the group owner can add/remove members (enforced at API layer).
+    """
+    __tablename__ = 'access_group_members'
+
+    id = Column(Integer, primary_key=True, index=True)
+    access_group_id = Column(Integer, ForeignKey('access_groups.id', ondelete='CASCADE'), nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+
+    access_group = relationship('AccessGroup', back_populates='members')
+    account = relationship('Account')
+
+    __table_args__ = (
+        UniqueConstraint('access_group_id', 'account_id', name='uq_access_group_member'),
+    )
+
+    def __repr__(self):
+        return f'<AccessGroupMember group={self.access_group_id} account={self.account_id}>'
+
+
+class AgentAccessGrant(Base):
+    """
+    Grant link: an agent is shared with an access group.
+    Only the agent owner can create/revoke grants (enforced at API layer).
+    """
+    __tablename__ = 'agent_access_grants'
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(Integer, ForeignKey('agents.id', ondelete='CASCADE'), nullable=False, index=True)
+    access_group_id = Column(Integer, ForeignKey('access_groups.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+
+    agent = relationship('Agent', back_populates='access_grants')
+    access_group = relationship('AccessGroup', back_populates='agent_grants')
+
+    __table_args__ = (
+        UniqueConstraint('agent_id', 'access_group_id', name='uq_agent_access_grant'),
+    )
+
+    def __repr__(self):
+        return f'<AgentAccessGrant agent={self.agent_id} group={self.access_group_id}>'
 
 
 class JsonSchema(Base):
