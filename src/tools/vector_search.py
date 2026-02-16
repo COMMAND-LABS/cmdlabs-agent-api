@@ -86,14 +86,19 @@ async def create_vector_search_tool(
         print(f"[VECTOR SEARCH TOOL] Unsupported provider: {provider}")
         return None
     
+    # For shared agents, use the agent owner's Pinecone credentials so
+    # shared users access the owner's vector stores (not their own).
+    # Falls back to the caller's account_id when agent is not shared.
+    credential_account_id = kwargs.get('agent_owner_account_id', account_id)
+
     # Get Pinecone API key from credentials
     credential = db.query(Credential).filter(
-        Credential.account_id == account_id,
+        Credential.account_id == credential_account_id,
         Credential.service_name == ServiceName.PINECONE_API_KEY
     ).first()
     
     if not credential:
-        print(f"[VECTOR SEARCH TOOL] No Pinecone API key found for account {account_id}")
+        print(f"[VECTOR SEARCH TOOL] No Pinecone API key found for account {credential_account_id}")
         return None
     
     try:

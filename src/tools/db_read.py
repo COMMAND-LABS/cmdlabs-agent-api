@@ -1,3 +1,4 @@
+
 """
 Database Read Tool
 
@@ -155,8 +156,13 @@ async def create_db_read_tool(
     if not table_name:
         raise ValueError("Missing required field 'table' in dbTableRead tool configuration")
     
+    # For shared agents, use the agent owner's credentials so shared users
+    # can read from the owner's database.  Write tools (db_write) intentionally
+    # do NOT do this — write access requires the caller's own credentials.
+    credential_account_id = kwargs.get('agent_owner_account_id', account_id)
+
     # Get the connection string from the credential (raises CredentialError if fails)
-    connection_string = get_connection_string(credential_id, account_id, db)
+    connection_string = get_connection_string(credential_id, credential_account_id, db)
     
     # Create the database engine for the external database
     # Use NullPool to avoid creating persistent connection pools for each tool

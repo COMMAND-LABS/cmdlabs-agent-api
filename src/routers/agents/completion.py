@@ -227,7 +227,11 @@ async def generator(
                 db=db,
                 auth_token=auth_token,
                 request=request,
-                chat_session_id=session_uuid
+                chat_session_id=session_uuid,
+                # For shared agents: read-only tools (vector search, DB read)
+                # use the agent owner's credentials so shared users can access
+                # the owner's vector stores and databases.
+                agent_owner_account_id=agent.account_id,
             )
         except CredentialError as e:
             print(f"[AGENT COMPLETION] Tool configuration error: {e}")
