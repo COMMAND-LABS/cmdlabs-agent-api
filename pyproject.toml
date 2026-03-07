@@ -33,6 +33,7 @@ dependencies = [
     "pinecone>=7.3.0,<8.0",
     "starlette<0.38.0,>=0.37.2",
     "httpx==0.28.0",
+    "pytest>=8.0.0",
 ]
 
 [build-system]
