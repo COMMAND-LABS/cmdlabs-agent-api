@@ -2,10 +2,12 @@
 Completion API - streaming LLM completion microservice.
 Exposes only the agent completion endpoint for independent scaling.
 """
+import logging
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -17,6 +19,22 @@ from src.routers import healthcheck, completion
 from src.routers import swarms
 
 load_dotenv()
+
+logger = logging.getLogger("completion-api")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    h = logging.StreamHandler()
+    h.setFormatter(logging.Formatter("%(name)s | %(message)s"))
+    logger.addHandler(h)
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Log every incoming request so completion-api traffic is visible in logs."""
+
+    async def dispatch(self, request: Request, call_next):
+        logger.info("%s %s", request.method, request.url.path)
+        return await call_next(request)
+
 
 app = FastAPI(
     title="Kalygo3 Completion API",
@@ -45,6 +63,7 @@ app.add_middleware(
     allowed_origins=jwt_allowed_origins,
     allow_credentials=True,
 )
+app.add_middleware(RequestLoggingMiddleware)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
