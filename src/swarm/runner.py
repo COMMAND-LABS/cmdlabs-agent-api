@@ -13,30 +13,79 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from .config import SwarmConfig
 
 
-# Sentinel for queue end
 SWARM_END = "_swarm_end"
 
+_JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
+_JSON_OBJECT_RE = re.compile(r"\{[\s\S]*\}")
 
-def _parse_director_output(raw: str) -> tuple[str, List[Dict[str, str]]]:
+
+def _extract_json(raw: str) -> Optional[dict]:
+    """Extract a JSON object from LLM text that may contain markdown fences or prose."""
+    stripped = raw.strip()
+
+    # Fast path: entire response is valid JSON
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Try fenced code block first (```json ... ```)
+    m = _JSON_BLOCK_RE.search(stripped)
+    if m:
+        try:
+            return json.loads(m.group(1).strip())
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Last resort: grab the first { … } span
+    m = _JSON_OBJECT_RE.search(stripped)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return None
+
+
+def _parse_director_output(raw: str, worker_names: List[str]) -> tuple[str, List[Dict[str, str]]]:
     """Parse director response into plan and orders. Expects JSON with plan and orders keys."""
     plan = ""
     orders: List[Dict[str, str]] = []
-    try:
-        # Try to find JSON block
-        stripped = raw.strip()
-        if stripped.startswith("```"):
-            stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-            stripped = re.sub(r"\s*```$", "", stripped)
-        data = json.loads(stripped)
+
+    data = _extract_json(raw)
+    if data and isinstance(data, dict):
         plan = data.get("plan") or ""
         raw_orders = data.get("orders") or []
         for o in raw_orders:
-            if isinstance(o, dict) and o.get("agent_name") and o.get("task"):
-                orders.append({"agent_name": str(o["agent_name"]), "task": str(o["task"])})
-    except (json.JSONDecodeError, TypeError):
-        # Fallback: treat whole response as plan, assign to first worker if we have one
+            if not isinstance(o, dict):
+                continue
+            name = o.get("agent_name") or o.get("agentName") or o.get("agent") or ""
+            task = o.get("task") or o.get("instruction") or ""
+            if name and task:
+                orders.append({"agent_name": str(name), "task": str(task)})
+    else:
+        # JSON extraction failed — use raw text as plan and assign to first worker
         plan = raw
+        if worker_names:
+            orders.append({"agent_name": worker_names[0], "task": raw})
+            print(f"[SWARM DIRECTOR] JSON parse failed; assigned full response to {worker_names[0]}")
+
     return plan, orders
+
+
+def _extract_content(response) -> str:
+    """Safely extract text from an LLM response (handles str, list-of-blocks, etc.)."""
+    content = response.content if hasattr(response, "content") else str(response)
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("text"):
+                parts.append(block["text"])
+        return "".join(parts)
+    return str(content) if content else ""
 
 
 def _run_director(
@@ -48,21 +97,28 @@ def _run_director(
     director_system_prompt: Optional[str],
 ) -> tuple[str, List[Dict[str, str]]]:
     """Run director once to get plan and orders. Returns (plan, orders)."""
+    agents_list = ", ".join(f'"{n}"' for n in worker_names)
     system = director_system_prompt or (
-        "You are the Director. Given the conversation history and the user's latest message, "
-        "output a JSON object with two keys: \"plan\" (string, your brief plan) and \"orders\" "
-        "(list of objects, each with \"agent_name\" and \"task\"). "
-        "Assign each order to exactly one of the available agents. "
-        "Available agents: " + ", ".join(worker_names)
+        "You are the Director of a multi-agent swarm. "
+        "Given the conversation history and the user's latest message, "
+        "you MUST respond with ONLY a JSON object (no markdown, no explanation) "
+        "with exactly two keys:\n"
+        '  "plan": a brief string describing your plan,\n'
+        '  "orders": an array of objects, each with "agent_name" (string) and "task" (string).\n'
+        f"Available agents: [{agents_list}]\n"
+        "You MUST assign at least one order to one of the available agents.\n"
+        "Example:\n"
+        '{"plan":"Summarize the topic","orders":[{"agent_name":"Researcher","task":"Find key facts"}]}'
     )
-    user_content = f"Conversation history:\n{history}\n\nUser message: {task}\n\nOutput JSON only."
+    user_content = f"Conversation history:\n{history}\n\nUser message: {task}"
     messages = [
         SystemMessage(content=system),
         HumanMessage(content=user_content),
     ]
     response = director_llm.invoke(messages)
-    raw = response.content if hasattr(response, "content") else str(response)
-    return _parse_director_output(raw)
+    raw = _extract_content(response)
+    print(f"[SWARM DIRECTOR] Raw response ({len(raw)} chars): {raw[:500]}")
+    return _parse_director_output(raw, worker_names)
 
 
 def _stream_worker_sync(
@@ -80,13 +136,14 @@ def _stream_worker_sync(
     full = ""
     if hasattr(worker_llm, "stream"):
         for chunk in worker_llm.stream(messages):
-            if hasattr(chunk, "content") and chunk.content:
-                full += chunk.content
-                streaming_callback(agent_name, chunk.content, False)
+            text = _extract_content(chunk)
+            if text:
+                full += text
+                streaming_callback(agent_name, text, False)
         streaming_callback(agent_name, "", True)
     else:
         response = worker_llm.invoke(messages)
-        full = response.content if hasattr(response, "content") else str(response)
+        full = _extract_content(response)
         if full:
             streaming_callback(agent_name, full, False)
         streaming_callback(agent_name, "", True)
@@ -113,9 +170,10 @@ def run_swarm_streaming(
 
     try:
         event_queue.put(("swarm_run_start",))
-        event_queue.put(("swarm_director_start",))
 
         for loop_index in range(loops):
+            event_queue.put(("swarm_director_start",))
+
             loop_task = task if loop_index == 0 else (
                 f"Previous result: {last_output}\n\nOriginal request: {task}\n\nContinue or refine."
             )
@@ -127,10 +185,16 @@ def run_swarm_streaming(
                 loop_task,
                 swarm_config.director.system_prompt,
             )
+            print(f"[SWARM] Loop {loop_index + 1}: plan={plan[:100]!r}, orders={len(orders)}")
             event_queue.put((
                 "swarm_director_done",
                 {"plan": plan, "orders": [{"agent_name": o["agent_name"], "task": o["task"]} for o in orders]},
             ))
+
+            if not orders:
+                print(f"[SWARM] Loop {loop_index + 1}: No orders from director, skipping workers")
+                event_queue.put(("swarm_loop_end", loop_index + 1))
+                continue
 
             def streaming_callback(agent_name: str, chunk: str, is_final: bool) -> None:
                 event_queue.put(("stream", agent_name, chunk, is_final))
@@ -142,6 +206,7 @@ def run_swarm_streaming(
                 worker_task = order["task"]
                 llm = worker_llms.get(agent_name)
                 if not llm:
+                    print(f"[SWARM] Worker {agent_name!r} not found in worker_llms keys: {list(worker_llms.keys())}")
                     outputs.append(f"[{agent_name} not configured]")
                     continue
                 spec = worker_specs.get(agent_name)
@@ -152,8 +217,10 @@ def run_swarm_streaming(
             last_output = "\n\n".join(f"{orders[i]['agent_name']}: {outputs[i]}" for i in range(len(outputs)))
             event_queue.put(("swarm_loop_end", loop_index + 1))
 
-        event_queue.put(("swarm_run_end", last_output))
+        event_queue.put(("swarm_run_end", last_output or ""))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         event_queue.put(("error", str(e)))
     finally:
         event_queue.put((SWARM_END, None))

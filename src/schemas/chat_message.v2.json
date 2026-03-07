@@ -19,6 +19,10 @@
       "type": "string",
       "description": "The text content of the message."
     },
+    "agentName": {
+      "type": "string",
+      "description": "Name of the agent that produced this message (used in swarm/multi-agent flows)."
+    },
     "toolCalls": {
       "type": "array",
       "description": "Array of tool calls made during the generation of this message. Only present for AI messages. Each tool call has a different schema depending on the tool type.",

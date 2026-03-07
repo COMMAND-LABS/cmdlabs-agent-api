@@ -14,7 +14,7 @@ from slowapi.util import get_remote_address
 from src.middleware.dynamic_cors import DynamicCORSMiddleware
 
 from src.routers import healthcheck, completion
-from src.routers.agents import swarm_completion
+from src.routers import swarms
 
 load_dotenv()
 
@@ -61,4 +61,4 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(healthcheck.router, prefix="")
 app.include_router(completion.router, prefix="/api/agents", tags=["Completion"])
-app.include_router(swarm_completion.router, prefix="/api/agents", tags=["Swarm"])
+app.include_router(swarms.router, prefix="/api/swarms", tags=["Swarm"])

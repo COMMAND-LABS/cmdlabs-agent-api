@@ -8,7 +8,7 @@ import asyncio
 import queue
 import time
 import uuid
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -16,14 +16,14 @@ from sqlalchemy.exc import OperationalError
 
 from src.deps import db_dependency, auth_dependency
 from src.db.database import SessionLocal
-from src.db.models import Agent, ChatSession, ChatMessage, Credential
-from src.routers.agents.access import load_agent_with_access_check
+from src.db.models import ChatSession, ChatMessage, Credential
 from src.routers.credentials.encryption import get_credential_value
-from src.core.schemas.ChatSessionPrompt import ChatSessionPrompt
+from src.routers.swarms.schemas import SwarmCompletionRequest
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.swarm import run_swarm_streaming, parse_swarm_config
+from src.swarm import run_swarm_streaming
+from src.swarm.config import SwarmConfig, DirectorSpec, WorkerSpec
 from src.swarm.runner import SWARM_END
 from src.routers.agents.helpers import (
     build_swarm_history,
@@ -37,7 +37,6 @@ from src.routers.agents.helpers import (
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
-# Default provider for swarm (director/workers use OpenAI unless specified)
 SWARM_DEFAULT_PROVIDER = "openai"
 
 
@@ -65,34 +64,35 @@ def _model_config_for(model_name: str, provider: str = SWARM_DEFAULT_PROVIDER) -
     return {"provider": provider, "model": model_name or "gpt-4o-mini"}
 
 
+def _build_swarm_config(req: SwarmCompletionRequest) -> SwarmConfig:
+    """Convert the client-provided swarm input into the internal SwarmConfig."""
+    s = req.swarm
+    director = DirectorSpec(
+        name=s.director.name,
+        model_name=s.director.modelName,
+        system_prompt=s.director.systemPrompt,
+    )
+    workers = [
+        WorkerSpec(
+            agent_name=w.agentName,
+            agent_description=w.agentDescription,
+            system_prompt=w.systemPrompt or f"You are {w.agentName}.",
+            model_name=w.modelName,
+        )
+        for w in s.workers
+    ]
+    return SwarmConfig(director=director, workers=workers, max_loops=s.maxLoops)
+
+
 async def _swarm_generator(
-    agent_id: int,
-    session_id: str,
-    prompt: str,
+    request_body: SwarmCompletionRequest,
     db,
     auth: dict,
-) -> any:
+) -> AsyncGenerator[str, None]:
     try:
         account_id = int(auth["id"]) if isinstance(auth["id"], str) else auth["id"]
-        agent = _db_retry_once(
-            db,
-            "load agent",
-            lambda: load_agent_with_access_check(db, account_id, agent_id),
-        )
-        if not agent:
-            yield sse_error("Agent not found", "The specified agent was not found or you do not have access.")
-            return
-        if not agent.config:
-            yield sse_error("Invalid agent configuration", "Agent configuration is missing.")
-            return
 
-        swarm_config = parse_swarm_config(agent.config)
-        if not swarm_config:
-            yield sse_error(
-                "Not a swarm agent",
-                "This agent is not configured as a hierarchical swarm. Set multiAgentArchitecture to hierarchicalSwarm and add swarm.director and swarm.workers.",
-            )
-            return
+        swarm_config = _build_swarm_config(request_body)
 
         provider = SWARM_DEFAULT_PROVIDER
         required_credential = get_required_credential_type(provider)
@@ -134,7 +134,7 @@ async def _swarm_generator(
             )
 
         try:
-            session_uuid = uuid.UUID(session_id)
+            session_uuid = uuid.UUID(request_body.sessionId)
         except ValueError:
             yield sse_error("Invalid sessionId format", "The sessionId must be a valid UUID.")
             return
@@ -150,9 +150,9 @@ async def _swarm_generator(
         if not session:
             session = ChatSession(
                 session_id=session_uuid,
-                agent_id=agent_id,
+                agent_id=None,
                 account_id=account_id,
-                title=f"Swarm chat {agent_id}",
+                title="Swarm chat",
             )
             db.add(session)
             db.commit()
@@ -166,6 +166,7 @@ async def _swarm_generator(
             .all(),
         )
         history = build_swarm_history(db_messages)
+        prompt = request_body.prompt
         task = f"User: {prompt}"
         chat_session_id = session.id
         db.close()
@@ -261,21 +262,18 @@ async def _swarm_generator(
         yield sse_error("Internal server error", str(e))
 
 
-@router.post("/{agent_id}/swarm-completion")
+@router.post("/completion")
 @limiter.limit("200/minute")
 async def swarm_completion(
     request: Request,
-    agent_id: int,
-    request_body: ChatSessionPrompt,
+    request_body: SwarmCompletionRequest,
     db: db_dependency,
     auth: auth_dependency,
-):
+) -> StreamingResponse:
     """Stream hierarchical swarm completion with per-agent SSE events."""
     return StreamingResponse(
         _swarm_generator(
-            agent_id=agent_id,
-            session_id=request_body.sessionId,
-            prompt=request_body.prompt,
+            request_body=request_body,
             db=db,
             auth=auth,
         ),
