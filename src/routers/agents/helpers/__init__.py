@@ -5,13 +5,12 @@ This module contains refactored helper functions for the agent completion endpoi
 """
 from .message_history import (
     build_message_history,
-    build_swarm_history,
     store_user_message,
     store_ai_message,
 )
 from .auth import extract_auth_token
 from .tool_calls import format_tool_call
-from .sse_events import sse_event, sse_error, sse_swarm_event, EventType
+from .sse_events import sse_event, sse_error
 from .llm_factory import (
     get_model_config,
     create_llm,
@@ -22,8 +21,7 @@ from .llm_factory import (
 __all__ = [
     # Message history
     "build_message_history",
-    "build_swarm_history",
-    "store_user_message",
+    "store_user_message", 
     "store_ai_message",
     # Auth
     "extract_auth_token",
@@ -32,8 +30,6 @@ __all__ = [
     # SSE events
     "sse_event",
     "sse_error",
-    "sse_swarm_event",
-    "EventType",
     # LLM factory
     "get_model_config",
     "create_llm",

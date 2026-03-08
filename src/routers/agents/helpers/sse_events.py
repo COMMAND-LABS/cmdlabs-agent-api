@@ -65,35 +65,3 @@ class EventType:
     TOOL_START = "on_tool_start"
     TOOL_END = "on_tool_end"
     ERROR = "error"
-    # Hierarchical swarm event types
-    SWARM_RUN_START = "swarm_run_start"
-    SWARM_DIRECTOR_START = "swarm_director_start"
-    SWARM_DIRECTOR_DONE = "swarm_director_done"
-    SWARM_AGENT_START = "swarm_agent_start"
-    SWARM_CHAT_MODEL_STREAM = "swarm_chat_model_stream"
-    SWARM_AGENT_END = "swarm_agent_end"
-    SWARM_LOOP_END = "swarm_loop_end"
-    SWARM_RUN_END = "swarm_run_end"
-
-
-def sse_swarm_event(
-    event: str,
-    *,
-    agent_name: Optional[str] = None,
-    data: Optional[Any] = None,
-    loop_index: Optional[int] = None,
-    **extra: Any
-) -> str:
-    """
-    Create a JSON-encoded SSE event for hierarchical swarm stream.
-    Payload can include agentName, data, loopIndex for UI to identify speaker and state.
-    """
-    payload: Dict[str, Any] = {"event": event}
-    if agent_name is not None:
-        payload["agentName"] = agent_name
-    if data is not None:
-        payload["data"] = data
-    if loop_index is not None:
-        payload["loopIndex"] = loop_index
-    payload.update(extra)
-    return json.dumps(payload, separators=(',', ':'))

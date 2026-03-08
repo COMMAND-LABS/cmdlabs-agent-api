@@ -6,18 +6,6 @@ Streaming LLM completion microservice. Handles agent completion (streaming token
 
 - `GET /` – Health check
 - `POST /api/agents/{agent_id}/completion` – Stream completion (SSE). Same request/response contract as the main AI API completion endpoint.
-- `POST /api/agents/{agent_id}/swarm-completion` – **Hierarchical swarm** completion (SSE). Use for multi-agent chat (e.g. director + workers). Request body: `{ "prompt", "sessionId" }` (same as completion). Response is a stream of JSON SSE events: `swarm_run_start`, `swarm_director_start`, `swarm_director_done`, `swarm_agent_start`, `swarm_chat_model_stream`, `swarm_agent_end`, `swarm_loop_end`, `swarm_run_end`. Each event can include `agentName` and `data` so the UI can show which agent is speaking.
-
-## Swarm agent config
-
-To use `swarm-completion`, the agent’s config must describe a hierarchical swarm:
-
-- `config.data.multiAgentArchitecture`: `"hierarchicalSwarm"`
-- `config.data.swarm.director`: `{ "name", "modelName", "systemPrompt" }` (optional)
-- `config.data.swarm.workers`: array of `{ "agentName", "agentDescription", "systemPrompt", "modelName" }`
-- `config.data.swarm.maxLoops`: number (default 1)
-
-The director decides which worker(s) answer each turn; worker responses are streamed with `agentName` so the client can show who is speaking. Chat history is stored with `agentName` on AI messages for replay in the next turn.
 
 ## Environment
 
@@ -75,7 +63,7 @@ python scripts/load_test_sweep.py \
   --prompt "Give me a short summary of what you can do." \
   --max-request-seconds 180
   --fail-threshold 0.5
-````
+```
 
 ## TRIGGER CICD
 

@@ -1,11 +1,10 @@
 """
 LangGraph supervisor swarm completion endpoint.
 
-Runs the langgraph-supervisor graph via ainvoke, then streams the
-worker outputs as SSE events matching the swarm protocol.
+Streams the same SSE event protocol as the in-house swarm but backed by
+langgraph-supervisor's create_supervisor + create_react_agent.
 """
 import json
-import logging
 import time
 import uuid
 from typing import AsyncGenerator, Optional
@@ -22,9 +21,8 @@ from src.routers.swarms.langgraph_schemas import LanggraphSwarmCompletionRequest
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.langgraph_swarm import run_langgraph_swarm, _to_node_name
+from src.langgraph_swarm import stream_langgraph_swarm, _to_node_name
 
-logger = logging.getLogger("completion-api")
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
@@ -104,6 +102,7 @@ async def _langgraph_generator(
     try:
         account_id = int(auth["id"]) if isinstance(auth["id"], str) else auth["id"]
 
+        # --- resolve API key ---
         provider = _DEFAULT_PROVIDER
         required_cred = _credential_type_for(provider)
         if required_cred:
@@ -126,6 +125,7 @@ async def _langgraph_generator(
         else:
             api_key = ""
 
+        # --- build LLMs ---
         sw = request_body.swarm
         supervisor_llm = _create_llm(provider, sw.supervisor.modelName, api_key, streaming=False)
 
@@ -136,19 +136,21 @@ async def _langgraph_generator(
             worker_configs.append({
                 "node_name": node_name,
                 "display_name": w.agentName,
+                "agent_description": w.agentDescription,
                 "system_prompt": w.systemPrompt or f"You are {w.agentName}.",
             })
-            worker_llms[node_name] = _create_llm(provider, w.modelName, api_key, streaming=False)
+            worker_llms[node_name] = _create_llm(provider, w.modelName, api_key, streaming=True)
 
         node_names = [wc["node_name"] for wc in worker_configs]
+        worker_list = ", ".join(node_names)
         supervisor_prompt = sw.supervisor.systemPrompt or (
-            "You are a team supervisor managing the following agents: "
-            + ", ".join(node_names) + ". "
-            "You MUST ALWAYS delegate to at least one agent using the transfer tools. "
-            "NEVER respond directly to the user yourself. "
-            "For every user message, choose the most appropriate agent and hand off to them."
+            "You are a team supervisor. Your only job is to delegate every user message to exactly one of these agents: "
+            + worker_list + ". "
+            "You must use the handoff tool to send the user's message to an agent; do not respond to the user yourself. "
+            "For each turn, pick the most relevant agent and delegate. The agent's reply will be shown to the user."
         )
 
+        # --- session & history ---
         try:
             session_uuid = uuid.UUID(request_body.sessionId)
         except ValueError:
@@ -193,45 +195,40 @@ async def _langgraph_generator(
         prompt = request_body.prompt
         db.close()
 
+        # --- persist user message ---
         try:
             _store_user_msg(chat_session_id, prompt)
         except Exception:
             pass
 
-        # Run the graph
-        print("[LANGGRAPH] About to yield swarm_run_start", flush=True)
-        yield _sse({"event": "swarm_run_start"})
-        print("[LANGGRAPH] Yielded swarm_run_start, calling ainvoke...", flush=True)
+        # --- stream events from LangGraph ---
+        agent_outputs: dict[str, str] = {}
+        async for evt in stream_langgraph_swarm(
+            prompt=prompt,
+            history=history,
+            supervisor_llm=supervisor_llm,
+            supervisor_prompt=supervisor_prompt,
+            worker_configs=worker_configs,
+            worker_llms=worker_llms,
+            output_mode=sw.outputMode,
+        ):
+            event_type = evt.get("event")
 
-        try:
-            result = await run_langgraph_swarm(
-                prompt=prompt,
-                history=history,
-                supervisor_llm=supervisor_llm,
-                supervisor_prompt=supervisor_prompt,
-                worker_configs=worker_configs,
-                worker_llms=worker_llms,
-                output_mode=sw.outputMode,
-            )
-            print(f"[LANGGRAPH] ainvoke complete, agents={list(result['agent_outputs'].keys())}", flush=True)
-        except Exception as invoke_err:
-            print(f"[LANGGRAPH] ainvoke FAILED: {invoke_err}", flush=True)
-            import traceback
-            traceback.print_exc()
-            yield _sse_error("Graph execution failed", str(invoke_err))
-            return
+            if event_type == "swarm_chat_model_stream":
+                agent_name = evt.get("agentName", "")
+                chunk = evt.get("data", "")
+                if agent_name and chunk:
+                    agent_outputs[agent_name] = agent_outputs.get(agent_name, "") + chunk
+                yield _sse(evt)
 
-        agent_outputs = result["agent_outputs"]
+            elif event_type == "error":
+                yield _sse_error("Swarm error", evt.get("data", "Unknown error"))
+                return
 
-        for agent_name, content in agent_outputs.items():
-            yield _sse({"event": "swarm_agent_start", "agentName": agent_name})
-            yield _sse({"event": "swarm_chat_model_stream", "agentName": agent_name, "data": content})
-            yield _sse({"event": "swarm_agent_end", "agentName": agent_name})
+            else:
+                yield _sse(evt)
 
-        yield _sse({"event": "swarm_run_end", "data": agent_outputs})
-        print(f"[LANGGRAPH] All events yielded", flush=True)
-
-        # Persist AI messages
+        # --- persist AI messages ---
         try:
             for agent_name, content in agent_outputs.items():
                 if content:
@@ -239,12 +236,9 @@ async def _langgraph_generator(
         except Exception:
             pass
 
-    except GeneratorExit:
-        print("[LANGGRAPH] Generator cancelled (client disconnected)", flush=True)
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"[LANGGRAPH] Outer exception: {e}", flush=True)
         yield _sse_error("Internal server error", str(e))
 
 
@@ -257,12 +251,6 @@ async def langgraph_swarm_completion(
     auth: auth_dependency,
 ) -> StreamingResponse:
     """Stream LangGraph supervisor swarm completion with per-agent SSE events."""
-    logger.info(
-        "langgraph/completion started sessionId=%s prompt_len=%d workers=%d",
-        request_body.sessionId,
-        len(request_body.prompt or ""),
-        len(request_body.swarm.workers or []),
-    )
     return StreamingResponse(
         _langgraph_generator(
             request_body=request_body,

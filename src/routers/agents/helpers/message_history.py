@@ -97,7 +97,6 @@ def store_ai_message(
     session_id: int,
     content: str,
     tool_calls: Optional[List[Dict[str, Any]]] = None,
-    agent_name: Optional[str] = None,
     validate: bool = True
 ) -> Optional[ChatMessage]:
     """
@@ -108,7 +107,6 @@ def store_ai_message(
         session_id: The chat session's internal ID (not UUID)
         content: The AI's response content
         tool_calls: Optional list of tool calls made during the response
-        agent_name: Optional name of the agent (for swarm: Director, worker name)
         validate: Whether to validate against schema
         
     Returns:
@@ -119,9 +117,6 @@ def store_ai_message(
             "role": "ai",
             "content": content
         }
-        
-        if agent_name:
-            message_obj["agentName"] = agent_name
         
         # Add tool calls if any
         if tool_calls:
@@ -149,30 +144,3 @@ def store_ai_message(
         print(f"[MESSAGE HISTORY] Failed to store AI response: {e}")
         db.rollback()
         return None
-
-
-def build_swarm_history(db_messages: List[ChatMessage]) -> str:
-    """
-    Build a conversation history string for the hierarchical swarm context.
-    Uses role and optional agentName so the director sees who said what.
-    
-    Args:
-        db_messages: List of ChatMessage objects from the database (ordered by created_at).
-        
-    Returns:
-        A string like "User: ...\\n\\nDirector: ...\\n\\nEinstein: ..." for swarm task context.
-    """
-    lines: List[str] = []
-    for msg in db_messages:
-        message_data = msg.message
-        if not isinstance(message_data, dict) or "content" not in message_data:
-            continue
-        content = message_data.get("content", "")
-        role = message_data.get("role", "")
-        agent_name = message_data.get("agentName")
-        if role == "human":
-            lines.append(f"User: {content}")
-        elif role == "ai":
-            speaker = agent_name if agent_name else "Assistant"
-            lines.append(f"{speaker}: {content}")
-    return "\n\n".join(lines) if lines else ""
