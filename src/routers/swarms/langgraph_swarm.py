@@ -4,6 +4,7 @@ LangGraph supervisor swarm completion endpoint.
 Streams the same SSE event protocol as the in-house swarm but backed by
 langgraph-supervisor's create_supervisor + create_react_agent.
 """
+import asyncio
 import json
 import time
 import uuid
@@ -50,7 +51,7 @@ def _db_retry_once(db, label: str, fn):
 
 
 def _sse(payload: dict) -> str:
-    return json.dumps(payload, separators=(",", ":"))
+    return json.dumps(payload, separators=(",", ":")) + "\n"
 
 
 def _sse_error(error: str, message: str) -> str:
@@ -69,7 +70,7 @@ def _credential_type_for(provider: str) -> Optional[str]:
 def _create_llm(provider: str, model: str, api_key: str, *, streaming: bool):
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7, stream_usage=True)
+        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
@@ -139,11 +140,8 @@ async def _langgraph_generator(
             base_prompt = w.systemPrompt or f"You are {w.agentName}."
             full_prompt = (
                 f"{base_prompt}\n\n"
-                f"You are in a group conversation with a human user and these other participants: {room_members}.\n"
-                "The human user can talk to you directly, ask you to talk to another participant, "
-                "or ask the group a question.\n"
-                "Respond naturally and in character. Address whoever you are asked to address. "
-                "Keep responses concise. Do not repeat greetings you have already given in this conversation."
+                f"You are in a room with a human and: {room_members}. "
+                "Be yourself. Keep it natural and concise."
             )
             worker_configs.append({
                 "node_name": node_name,
@@ -153,26 +151,11 @@ async def _langgraph_generator(
             })
             worker_llms[node_name] = _create_llm(provider, w.modelName, api_key, streaming=True)
 
-        node_names = [wc["node_name"] for wc in worker_configs]
-        worker_descriptions = "; ".join(
-            f"{wc['node_name']} ({wc['display_name']})"
-            for wc in worker_configs
-        )
         supervisor_prompt = sw.supervisor.systemPrompt or (
-            "You are an invisible moderator in a group chat room. "
-            "The room contains a human user and these participants: "
-            f"{worker_descriptions}.\n\n"
-            "Your job is to read each user message and decide which participant(s) "
-            "should respond, and in what order.\n\n"
-            "Rules:\n"
-            "1. If the user addresses one participant, delegate to that participant only.\n"
-            "2. If the user asks participants to interact (e.g. 'Jesus, say hi to Martin'), "
-            "delegate to each relevant participant in the natural order of the conversation.\n"
-            "3. If the user says something general like 'hey', pick the single most relevant participant.\n"
-            "4. After ALL relevant participants have spoken, respond with the single word 'done' "
-            "to end the turn. This is the ONLY way to finish — you MUST say 'done' when the "
-            "conversation for this user message is complete.\n"
-            "5. NEVER delegate to the same participant twice in the same turn."
+            f"You are in a chat room with a human and: {room_members}. "
+            "When the human says something, hand off to whoever should respond. "
+            "Always hand off to someone — never skip. "
+            "After they reply, say 'done'."
         )
 
         # --- session & history ---
@@ -255,16 +238,26 @@ async def _langgraph_generator(
                 yield _sse_error("Swarm error", evt.get("data", "Unknown error"))
                 return
 
+            elif event_type in ("swarm_agent_end", "swarm_run_end"):
+                await asyncio.sleep(0.05)
+                yield _sse(evt)
+
             else:
                 yield _sse(evt)
 
         # --- persist AI messages ---
+        for agent_name, content in agent_outputs.items():
+            print(f"[LANGGRAPH] final output [{agent_name}]: {content!r}", flush=True)
+
         try:
             for agent_name, content in agent_outputs.items():
                 if content:
                     _store_ai_msg(chat_session_id, content, agent_name=agent_name)
         except Exception:
             pass
+
+        # Flush padding — ensures reverse proxies deliver the last chunk
+        yield "\n"
 
     except Exception as e:
         import traceback
@@ -288,4 +281,8 @@ async def langgraph_swarm_completion(
             auth=auth,
         ),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )

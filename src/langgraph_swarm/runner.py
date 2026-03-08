@@ -2,9 +2,9 @@
 LangGraph supervisor swarm – token-level streaming via astream_events.
 
 Worker agents are subgraphs whose internal LLM node is always called "agent".
-We track which worker is active via a nesting-depth counter on on_chain_start/end,
-then attribute on_chat_model_stream tokens to the active worker. A background task
-+ asyncio.Queue keeps the SSE connection alive with keepalive heartbeats.
+We track which worker is active via on_chain_start events and attribute
+on_chat_model_stream tokens to it. active_worker only changes when a different
+worker starts — never cleared on chain_end — so no tokens are dropped.
 """
 
 import asyncio
@@ -61,40 +61,32 @@ def _event_node(ev: dict) -> str:
 
 async def _stream_tokens(app, messages, worker_names, node_to_display, q: asyncio.Queue):
     """Run astream_events in a task; push swarm SSE dicts into *q*."""
-    worker_depth: Dict[str, int] = {}
     active_worker: Optional[str] = None
     current_streaming: Optional[str] = None
+    streamed_text: Dict[str, str] = {}
     try:
         print(f"[LANGGRAPH] astream_events starting, workers={worker_names}", flush=True)
         token_count = 0
         async for ev in app.astream_events(
             {"messages": messages},
             version="v2",
-            config={"recursion_limit": 30},
+            config={"recursion_limit": 150},
         ):
             kind = ev.get("event", "")
             node = _event_node(ev)
 
             if kind == "on_chain_start" and node in worker_names:
-                worker_depth[node] = worker_depth.get(node, 0) + 1
                 if active_worker != node:
-                    print(f"[LANGGRAPH] worker active: {node} depth={worker_depth[node]}", flush=True)
+                    if current_streaming is not None and current_streaming != node:
+                        await q.put({"event": "swarm_agent_end",
+                                     "agentName": node_to_display.get(current_streaming, current_streaming)})
+                        current_streaming = None
+                    print(f"[LANGGRAPH] worker active: {node}", flush=True)
                     active_worker = node
 
-            if kind == "on_chain_end" and node in worker_names:
-                worker_depth[node] = max(0, worker_depth.get(node, 0) - 1)
-                if worker_depth[node] == 0 and active_worker == node:
-                    print(f"[LANGGRAPH] worker done: {node} tokens_so_far={token_count}", flush=True)
-                    active_worker = None
-
-            # Token from worker: accept on_chat_model_stream when we're inside a worker.
-            # Node may be "agent" (react agent inner node) or another runnable name.
             if kind == "on_chat_model_stream" and active_worker:
                 raw = ev.get("data")
-                if isinstance(raw, dict) and "chunk" in raw:
-                    chunk = raw["chunk"]
-                else:
-                    chunk = raw
+                chunk = raw["chunk"] if isinstance(raw, dict) and "chunk" in raw else raw
                 if not isinstance(chunk, AIMessageChunk):
                     continue
                 token = chunk.content if isinstance(chunk.content, str) else ""
@@ -102,22 +94,34 @@ async def _stream_tokens(app, messages, worker_names, node_to_display, q: asynci
                     continue
 
                 display = node_to_display.get(active_worker, active_worker)
-
                 if current_streaming != active_worker:
-                    if current_streaming is not None:
-                        await q.put({"event": "swarm_agent_end",
-                                     "agentName": node_to_display.get(current_streaming, current_streaming)})
                     current_streaming = active_worker
+                    streamed_text[active_worker] = ""
                     await q.put({"event": "swarm_agent_start", "agentName": display})
 
+                streamed_text[active_worker] += token
                 await q.put({"event": "swarm_chat_model_stream", "agentName": display, "data": token})
                 token_count += 1
+
+            if kind == "on_chat_model_end" and active_worker:
+                raw = ev.get("data")
+                output = raw.get("output") if isinstance(raw, dict) else None
+                if output and hasattr(output, "content"):
+                    full = output.content if isinstance(output.content, str) else ""
+                    already = streamed_text.get(active_worker, "")
+                    if full and full.startswith(already) and len(full) > len(already):
+                        tail = full[len(already):]
+                        display = node_to_display.get(active_worker, active_worker)
+                        await q.put({"event": "swarm_chat_model_stream", "agentName": display, "data": tail})
+                        streamed_text[active_worker] = full
+                        token_count += 1
+                        print(f"[LANGGRAPH] recovered tail: {tail!r}", flush=True)
 
         if current_streaming is not None:
             await q.put({"event": "swarm_agent_end",
                          "agentName": node_to_display.get(current_streaming, current_streaming)})
 
-        print(f"[LANGGRAPH] astream_events done – {token_count} tokens streamed", flush=True)
+        print(f"[LANGGRAPH] astream_events done – {token_count} tokens", flush=True)
     except Exception as exc:
         import traceback
         traceback.print_exc()
