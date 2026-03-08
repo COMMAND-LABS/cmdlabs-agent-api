@@ -64,19 +64,16 @@ async def _stream_tokens(app, messages, worker_names, node_to_display, q: asynci
     worker_depth: Dict[str, int] = {}
     active_worker: Optional[str] = None
     current_streaming: Optional[str] = None
-    debug_count = [0]  # mutable so we can limit debug logs
-
     try:
         print(f"[LANGGRAPH] astream_events starting, workers={worker_names}", flush=True)
         token_count = 0
-        async for ev in app.astream_events({"messages": messages}, version="v2"):
+        async for ev in app.astream_events(
+            {"messages": messages},
+            version="v2",
+            config={"recursion_limit": 100},
+        ):
             kind = ev.get("event", "")
             node = _event_node(ev)
-
-            # Debug: log first 20 events to see actual structure
-            if debug_count[0] < 20:
-                debug_count[0] += 1
-                print(f"[LANGGRAPH] ev#{debug_count[0]} event={kind} name={ev.get('name')!r} meta_node={ev.get('metadata', {}).get('langgraph_node')!r}", flush=True)
 
             if kind == "on_chain_start" and node in worker_names:
                 worker_depth[node] = worker_depth.get(node, 0) + 1
