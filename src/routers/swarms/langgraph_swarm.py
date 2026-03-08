@@ -1,10 +1,13 @@
 """
-LangGraph supervisor swarm completion endpoint.
+Multi-agent group chat completion endpoint.
 
-Streams the same SSE event protocol as the in-house swarm but backed by
-langgraph-supervisor's create_supervisor + create_react_agent.
+Uses a simple route-and-stream pattern:
+  1. A fast router LLM call picks which agent(s) should respond.
+  2. Each selected agent streams tokens directly via llm.astream().
+
+No graph framework, no background tasks, no queues.
 """
-import asyncio
+
 import json
 import time
 import uuid
@@ -22,7 +25,7 @@ from src.routers.swarms.langgraph_schemas import LanggraphSwarmCompletionRequest
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.langgraph_swarm import stream_langgraph_swarm, _to_node_name
+from src.multi_agent import route_message, stream_agent
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
@@ -95,7 +98,7 @@ def _store_ai_msg(chat_session_id: int, content: str, agent_name: Optional[str] 
         db.close()
 
 
-async def _langgraph_generator(
+async def _generator(
     request_body: LanggraphSwarmCompletionRequest,
     db,
     auth: dict,
@@ -126,37 +129,30 @@ async def _langgraph_generator(
         else:
             api_key = ""
 
-        # --- build LLMs ---
+        # --- build agent configs ---
         sw = request_body.swarm
-        supervisor_llm = _create_llm(provider, sw.supervisor.modelName, api_key, streaming=False)
-
         all_display_names = [w.agentName for w in sw.workers]
         room_members = ", ".join(all_display_names)
 
-        worker_configs = []
-        worker_llms = {}
+        agent_configs: dict[str, dict] = {}
+        agent_list: list[dict[str, str]] = []
         for w in sw.workers:
-            node_name = _to_node_name(w.agentName)
             base_prompt = w.systemPrompt or f"You are {w.agentName}."
             full_prompt = (
                 f"{base_prompt}\n\n"
                 f"You are in a room with a human and: {room_members}. "
                 "Be yourself. Keep it natural and concise."
             )
-            worker_configs.append({
-                "node_name": node_name,
-                "display_name": w.agentName,
-                "agent_description": w.agentDescription,
+            agent_configs[w.agentName] = {
                 "system_prompt": full_prompt,
+                "llm": _create_llm(provider, w.modelName, api_key, streaming=True),
+            }
+            agent_list.append({
+                "name": w.agentName,
+                "description": w.agentDescription or "",
             })
-            worker_llms[node_name] = _create_llm(provider, w.modelName, api_key, streaming=True)
 
-        supervisor_prompt = sw.supervisor.systemPrompt or (
-            f"You are in a chat room with a human and: {room_members}. "
-            "When the human says something, hand off to whoever should respond. "
-            "Always hand off to someone — never skip. "
-            "After they reply, say 'done'."
-        )
+        router_llm = _create_llm(provider, sw.supervisor.modelName, api_key, streaming=False)
 
         # --- session & history ---
         try:
@@ -178,7 +174,7 @@ async def _langgraph_generator(
                 session_id=session_uuid,
                 agent_id=None,
                 account_id=account_id,
-                title="LangGraph swarm chat",
+                title="Group agent chat",
             )
             db.add(session)
             db.commit()
@@ -192,7 +188,7 @@ async def _langgraph_generator(
             .all(),
         )
 
-        history = []
+        history: list[dict[str, str]] = []
         for msg in db_messages:
             md = msg.message
             if isinstance(md, dict) and "role" in md and "content" in md:
@@ -214,50 +210,62 @@ async def _langgraph_generator(
         except Exception:
             pass
 
-        # --- stream events from LangGraph ---
+        # --- Step 1: Route — pick who should speak ---
+        speakers = await route_message(prompt, history, agent_list, router_llm)
+        print(f"[MULTI-AGENT] routed to: {speakers}", flush=True)
+
+        # --- Step 2: Stream each speaker sequentially ---
+        yield _sse({"event": "swarm_run_start"})
+
+        running_history = list(history)
+        multi = len(speakers) > 1
         agent_outputs: dict[str, str] = {}
-        async for evt in stream_langgraph_swarm(
-            prompt=prompt,
-            history=history,
-            supervisor_llm=supervisor_llm,
-            supervisor_prompt=supervisor_prompt,
-            worker_configs=worker_configs,
-            worker_llms=worker_llms,
-            output_mode=sw.outputMode,
-        ):
-            event_type = evt.get("event")
+        for i, name in enumerate(speakers):
+            cfg = agent_configs.get(name)
+            if not cfg:
+                continue
 
-            if event_type == "swarm_chat_model_stream":
-                agent_name = evt.get("agentName", "")
-                chunk = evt.get("data", "")
-                if agent_name and chunk:
-                    agent_outputs[agent_name] = agent_outputs.get(agent_name, "") + chunk
-                yield _sse(evt)
-
-            elif event_type == "error":
-                yield _sse_error("Swarm error", evt.get("data", "Unknown error"))
-                return
-
-            elif event_type in ("swarm_agent_end", "swarm_run_end"):
-                await asyncio.sleep(0.05)
-                yield _sse(evt)
-
+            if not multi:
+                effective_prompt = prompt
+            elif i == 0:
+                effective_prompt = (
+                    f"{prompt}\n\n"
+                    f"You are {name}. Say ONLY your own words. "
+                    "Do NOT write dialogue for anyone else."
+                )
             else:
-                yield _sse(evt)
+                prev = speakers[i - 1]
+                effective_prompt = (
+                    f"{prev} just spoke to you. Reply as {name} — "
+                    "only your own words, nothing else."
+                )
+
+            yield _sse({"event": "swarm_agent_start", "agentName": name})
+
+            full_text = ""
+            async for token in stream_agent(
+                system_prompt=cfg["system_prompt"],
+                history=running_history,
+                prompt=effective_prompt,
+                llm=cfg["llm"],
+            ):
+                full_text += token
+                yield _sse({"event": "swarm_chat_model_stream", "agentName": name, "data": token})
+
+            yield _sse({"event": "swarm_agent_end", "agentName": name})
+            agent_outputs[name] = full_text
+            running_history.append({"role": "assistant", "content": f"[{name}]: {full_text}"})
+            print(f"[MULTI-AGENT] {name}: {full_text!r}", flush=True)
+
+        yield _sse({"event": "swarm_run_end", "data": agent_outputs})
 
         # --- persist AI messages ---
-        for agent_name, content in agent_outputs.items():
-            print(f"[LANGGRAPH] final output [{agent_name}]: {content!r}", flush=True)
-
         try:
             for agent_name, content in agent_outputs.items():
                 if content:
                     _store_ai_msg(chat_session_id, content, agent_name=agent_name)
         except Exception:
             pass
-
-        # Flush padding — ensures reverse proxies deliver the last chunk
-        yield "\n"
 
     except Exception as e:
         import traceback
@@ -273,9 +281,9 @@ async def langgraph_swarm_completion(
     db: db_dependency,
     auth: auth_dependency,
 ) -> StreamingResponse:
-    """Stream LangGraph supervisor swarm completion with per-agent SSE events."""
+    """Stream multi-agent group chat completion with per-agent SSE events."""
     return StreamingResponse(
-        _langgraph_generator(
+        _generator(
             request_body=request_body,
             db=db,
             auth=auth,

@@ -34,8 +34,6 @@ dependencies = [
     "starlette<0.38.0,>=0.37.2",
     "httpx==0.28.0",
     "pytest>=8.0.0",
-    "langgraph>=1.0.2,<2.0.0",
-    "langgraph-supervisor>=0.0.31",
     "swarms>=4.0.0",
     "setuptools>=65.0.0",
 ]
