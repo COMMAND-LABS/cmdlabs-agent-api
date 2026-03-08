@@ -140,8 +140,13 @@ async def _generator(
             base_prompt = w.systemPrompt or f"You are {w.agentName}."
             full_prompt = (
                 f"{base_prompt}\n\n"
-                f"You are in a room with a human and: {room_members}. "
-                "Be yourself. Keep it natural and concise."
+                f"You are in a group conversation with a human and: {room_members}.\n"
+                "- Speak naturally as yourself. Only say your own words.\n"
+                "- Do NOT end every message with a question. Sometimes just share "
+                "a thought, react, or make a statement.\n"
+                "- Be direct. If someone asks who you were talking to, answer honestly.\n"
+                "- Avoid filler like \"I appreciate your perspective\" — just respond.\n"
+                "- Keep it concise. A few sentences is usually enough."
             )
             agent_configs[w.agentName] = {
                 "system_prompt": full_prompt,
@@ -225,20 +230,10 @@ async def _generator(
             if not cfg:
                 continue
 
-            if not multi:
+            if not multi or i == 0:
                 effective_prompt = prompt
-            elif i == 0:
-                effective_prompt = (
-                    f"{prompt}\n\n"
-                    f"You are {name}. Say ONLY your own words. "
-                    "Do NOT write dialogue for anyone else."
-                )
             else:
-                prev = speakers[i - 1]
-                effective_prompt = (
-                    f"{prev} just spoke to you. Reply as {name} — "
-                    "only your own words, nothing else."
-                )
+                effective_prompt = "Continue the conversation."
 
             yield _sse({"event": "swarm_agent_start", "agentName": name})
 
@@ -248,6 +243,7 @@ async def _generator(
                 history=running_history,
                 prompt=effective_prompt,
                 llm=cfg["llm"],
+                agent_name=name,
             ):
                 full_text += token
                 yield _sse({"event": "swarm_chat_model_stream", "agentName": name, "data": token})
