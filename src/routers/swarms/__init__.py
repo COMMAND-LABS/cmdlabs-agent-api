@@ -1,9 +1,11 @@
 from fastapi import APIRouter
 
 from .langgraph_swarm import router as _langgraph_router
+from .tts_next_turn import router as _tts_next_turn_router
 
 router = APIRouter()
 router.include_router(_langgraph_router)
+router.include_router(_tts_next_turn_router)
 
 # NOTE: The in-house swarm router (swarm_completion) is disabled because
 # src/swarm/ is missing its source files. Re-enable once restored:
