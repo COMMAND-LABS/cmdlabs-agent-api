@@ -147,6 +147,7 @@ async def _generator(
                 f"{base_prompt}\n\n"
                 f"Group conversation participants: Human, {participants}.\n"
                 "- Speak naturally as yourself. Only say your own words.\n"
+                "- NEVER speak on behalf of other participants — let them answer for themselves.\n"
                 "- Do NOT end every message with a question. Sometimes just share "
                 "a thought, react, or make a statement.\n"
                 "- Be direct. If someone asks who you were talking to, answer honestly.\n"

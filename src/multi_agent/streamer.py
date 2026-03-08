@@ -23,9 +23,11 @@ def _build_messages(
     """Convert history dicts + prompt into LangChain message objects.
 
     Each history dict has ``role``, ``content``, and an optional
-    ``agent_name``.  When present, the ``name`` field is set on the
-    ``AIMessage`` so the LLM (and LangSmith traces) can attribute the
-    message to the right speaker without polluting the content text.
+    ``agent_name``.  Messages from *other* agents get the ``name``
+    field set so the LLM can tell who said what.  The current agent's
+    own past messages stay as plain ``AIMessage`` — the model already
+    treats those as its own prior output, and adding ``name`` to them
+    confuses smaller models into echoing the name as content.
     """
     messages = [SystemMessage(content=system_prompt)]
     for h in history:
@@ -37,7 +39,7 @@ def _build_messages(
             continue
 
         speaker = h.get("agent_name")
-        if speaker:
+        if speaker and speaker != agent_name:
             safe_name = _INVALID_NAME_CHARS.sub("_", speaker)
             messages.append(AIMessage(content=content, name=safe_name))
         else:
