@@ -129,25 +129,50 @@ async def _langgraph_generator(
         sw = request_body.swarm
         supervisor_llm = _create_llm(provider, sw.supervisor.modelName, api_key, streaming=False)
 
+        all_display_names = [w.agentName for w in sw.workers]
+        room_members = ", ".join(all_display_names)
+
         worker_configs = []
         worker_llms = {}
         for w in sw.workers:
             node_name = _to_node_name(w.agentName)
+            base_prompt = w.systemPrompt or f"You are {w.agentName}."
+            full_prompt = (
+                f"{base_prompt}\n\n"
+                f"You are in a group conversation with a human user and these other participants: {room_members}.\n"
+                "The human user can talk to you directly, ask you to talk to another participant, "
+                "or ask the group a question.\n"
+                "Respond naturally and in character. Address whoever you are asked to address. "
+                "Keep responses concise. Do not repeat greetings you have already given in this conversation."
+            )
             worker_configs.append({
                 "node_name": node_name,
                 "display_name": w.agentName,
                 "agent_description": w.agentDescription,
-                "system_prompt": w.systemPrompt or f"You are {w.agentName}.",
+                "system_prompt": full_prompt,
             })
             worker_llms[node_name] = _create_llm(provider, w.modelName, api_key, streaming=True)
 
         node_names = [wc["node_name"] for wc in worker_configs]
-        worker_list = ", ".join(node_names)
+        worker_descriptions = "; ".join(
+            f"{wc['node_name']} ({wc['display_name']})"
+            for wc in worker_configs
+        )
         supervisor_prompt = sw.supervisor.systemPrompt or (
-            "You are a team supervisor. Your only job is to delegate every user message to exactly one of these agents: "
-            + worker_list + ". "
-            "You must use the handoff tool to send the user's message to an agent; do not respond to the user yourself. "
-            "For each turn, pick the most relevant agent and delegate. The agent's reply will be shown to the user."
+            "You are an invisible moderator in a group chat room. "
+            "The room contains a human user and these participants: "
+            f"{worker_descriptions}.\n\n"
+            "Your job is to read each user message and decide which participant(s) "
+            "should respond, and in what order.\n\n"
+            "Rules:\n"
+            "1. If the user addresses one participant, delegate to that participant only.\n"
+            "2. If the user asks participants to interact (e.g. 'Jesus, say hi to Martin'), "
+            "delegate to each relevant participant in the natural order of the conversation.\n"
+            "3. If the user says something general like 'hey', pick the single most relevant participant.\n"
+            "4. After ALL relevant participants have spoken, respond with the single word 'done' "
+            "to end the turn. This is the ONLY way to finish — you MUST say 'done' when the "
+            "conversation for this user message is complete.\n"
+            "5. NEVER delegate to the same participant twice in the same turn."
         )
 
         # --- session & history ---
@@ -189,7 +214,12 @@ async def _langgraph_generator(
             md = msg.message
             if isinstance(md, dict) and "role" in md and "content" in md:
                 role = "user" if md["role"] == "human" else "assistant"
-                history.append({"role": role, "content": md["content"]})
+                content = md["content"]
+                if role == "assistant":
+                    agent_name = md.get("agentName")
+                    if agent_name:
+                        content = f"[{agent_name}]: {content}"
+                history.append({"role": role, "content": content})
 
         chat_session_id = session.id
         prompt = request_body.prompt

@@ -70,7 +70,7 @@ async def _stream_tokens(app, messages, worker_names, node_to_display, q: asynci
         async for ev in app.astream_events(
             {"messages": messages},
             version="v2",
-            config={"recursion_limit": 100},
+            config={"recursion_limit": 30},
         ):
             kind = ev.get("event", "")
             node = _event_node(ev)
