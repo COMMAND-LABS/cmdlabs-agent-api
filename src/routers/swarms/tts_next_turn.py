@@ -1,9 +1,16 @@
 """
-TTS next-turn endpoint: one agent turn per request (approach 1).
+TTS next-turn endpoint: one agent turn per request.
 
 Client sends prompt on first turn; after playing audio, sends stateToken to get
 the next speaker. Returns JSON (no streaming) so the client can TTS and play,
 then request the next turn.
+
+Flow per user message (max 5 agent responses):
+  1. User sends prompt → router picks first speaker → agent responds.
+  2. Client sends stateToken → router picks next speaker → agent responds.
+  3. Repeat until router returns [] or 5 responses reached.
+
+All parties see the same shared history — no synthetic prompts are injected.
 """
 
 import base64
@@ -25,14 +32,14 @@ from src.routers.swarms.langgraph_schemas import (
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.multi_agent import route_message, stream_agent
-from src.utils.langsmith import get_langsmith_callbacks
+from src.multi_agent import route_next_speaker, stream_agent
+from src.multi_agent.session_logger import SessionLogger
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 _DEFAULT_PROVIDER = "openai"
-_langsmith_cbs = get_langsmith_callbacks("multi-agent-tts")
+_MAX_RESPONSES_PER_TURN = 5
 
 
 def _db_retry_once(db, label: str, fn):
@@ -68,10 +75,10 @@ def _credential_type_for(provider: str) -> Optional[str]:
 def _create_llm(provider: str, model: str, api_key: str, *, streaming: bool):
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7, callbacks=_langsmith_cbs)
+        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7, callbacks=_langsmith_cbs)
+        return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
     raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -93,15 +100,15 @@ def _store_ai_msg(chat_session_id: int, content: str, agent_name: Optional[str] 
         db.close()
 
 
-def _encode_state(session_id: str, pending_speakers: List[str]) -> str:
-    payload = {"sessionId": session_id, "pendingSpeakers": pending_speakers}
-    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+def _encode_state(session_id: str, response_count: int) -> str:
+    return base64.urlsafe_b64encode(
+        json.dumps({"sessionId": session_id, "responseCount": response_count}).encode()
+    ).decode()
 
 
 def _decode_state(token: str) -> Dict[str, Any]:
     try:
-        raw = base64.urlsafe_b64decode(token.encode())
-        return json.loads(raw.decode())
+        return json.loads(base64.urlsafe_b64decode(token.encode()).decode())
     except Exception:
         return {}
 
@@ -114,10 +121,10 @@ async def swarm_tts_next_turn(
     db: db_dependency,
     auth: auth_dependency,
 ) -> SwarmTtsNextTurnResponse:
-    """Return one agent's turn. Send prompt for first turn; send stateToken after playback for next."""
+    """Return one agent's turn, then route to decide if someone else should speak."""
     account_id = int(auth["id"]) if isinstance(auth["id"], str) else auth["id"]
 
-    # Resolve API key
+    # --- resolve API key ---
     provider = _DEFAULT_PROVIDER
     required_cred = _credential_type_for(provider)
     if required_cred:
@@ -135,6 +142,7 @@ async def swarm_tts_next_turn(
     else:
         api_key = ""
 
+    # --- build agent configs ---
     sw = body.swarm
     all_display_names = [w.agentName for w in sw.workers]
 
@@ -162,6 +170,7 @@ async def swarm_tts_next_turn(
 
     router_llm = _create_llm(provider, sw.supervisor.modelName, api_key, streaming=False)
 
+    # --- session & history ---
     try:
         session_uuid = uuid.UUID(body.sessionId)
     except ValueError:
@@ -205,57 +214,33 @@ async def swarm_tts_next_turn(
             history.append(entry)
 
     chat_session_id = session.id
+    slog = SessionLogger(body.sessionId)
     db.close()
 
-    # Continuation: stateToken present
+    # --- determine response_count ---
     if body.stateToken:
         state = _decode_state(body.stateToken)
-        pending_speakers = state.get("pendingSpeakers") or []
         if state.get("sessionId") != body.sessionId:
             raise HTTPException(status_code=400, detail="stateToken does not match sessionId.")
-        if not pending_speakers:
-            return SwarmTtsNextTurnResponse(agentName="", content="", stateToken=None, done=True)
+        response_count = state.get("responseCount", 0)
+    else:
+        response_count = 0
 
-        name = pending_speakers[0]
-        cfg = agent_configs.get(name)
-        if not cfg:
-            return SwarmTtsNextTurnResponse(agentName="", content="", stateToken=None, done=True)
-
-        full_text = ""
-        async for token in stream_agent(
-            system_prompt=cfg["system_prompt"],
-            history=history,
-            prompt="Continue the conversation.",
-            llm=cfg["llm"],
-            agent_name=name,
-        ):
-            full_text += token
-
+    # --- first turn: persist user message and add to history ---
+    if not body.stateToken:
+        if not (body.prompt or "").strip():
+            raise HTTPException(status_code=400, detail="prompt is required when stateToken is not provided.")
+        prompt = (body.prompt or "").strip()
         try:
-            _store_ai_msg(chat_session_id, full_text, agent_name=name)
+            _store_user_msg(chat_session_id, prompt)
         except Exception:
             pass
+        history.append({"role": "user", "content": prompt})
 
-        new_pending = pending_speakers[1:]
-        new_token = _encode_state(body.sessionId, new_pending) if new_pending else None
-        return SwarmTtsNextTurnResponse(
-            agentName=name,
-            content=full_text,
-            stateToken=new_token,
-            done=len(new_pending) == 0,
-        )
+    # --- route: who should speak next? ---
+    speakers = await route_next_speaker(history, agent_list, router_llm, session_logger=slog)
+    slog.log_route(history[-1].get("content", "")[:80], speakers)
 
-    # First turn: prompt required
-    if not (body.prompt or "").strip():
-        raise HTTPException(status_code=400, detail="prompt is required when stateToken is not provided.")
-
-    prompt = (body.prompt or "").strip()
-    try:
-        _store_user_msg(chat_session_id, prompt)
-    except Exception:
-        pass
-
-    speakers = await route_message(prompt, history, agent_list, router_llm)
     if not speakers:
         return SwarmTtsNextTurnResponse(agentName="", content="", stateToken=None, done=True)
 
@@ -264,26 +249,32 @@ async def swarm_tts_next_turn(
     if not cfg:
         return SwarmTtsNextTurnResponse(agentName="", content="", stateToken=None, done=True)
 
+    # --- generate agent response (agent sees the full shared history) ---
+    slog.log_agent_start(name, len(history), history[-1].get("content", "")[:80])
+    t0 = SessionLogger.timer()
+
     full_text = ""
     async for token in stream_agent(
         system_prompt=cfg["system_prompt"],
         history=history,
-        prompt=prompt,
         llm=cfg["llm"],
         agent_name=name,
+        session_logger=slog,
     ):
         full_text += token
+
+    slog.log_agent_end(name, full_text, SessionLogger.timer() - t0)
 
     try:
         _store_ai_msg(chat_session_id, full_text, agent_name=name)
     except Exception:
         pass
 
-    new_pending = speakers[1:]
-    new_token = _encode_state(body.sessionId, new_pending) if new_pending else None
-    return SwarmTtsNextTurnResponse(
-        agentName=name,
-        content=full_text,
-        stateToken=new_token,
-        done=len(new_pending) == 0,
-    )
+    response_count += 1
+
+    # --- decide if we're done ---
+    if response_count >= _MAX_RESPONSES_PER_TURN:
+        return SwarmTtsNextTurnResponse(agentName=name, content=full_text, stateToken=None, done=True)
+
+    new_token = _encode_state(body.sessionId, response_count)
+    return SwarmTtsNextTurnResponse(agentName=name, content=full_text, stateToken=new_token, done=False)

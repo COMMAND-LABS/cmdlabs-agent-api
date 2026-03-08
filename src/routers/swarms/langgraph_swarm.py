@@ -1,11 +1,12 @@
 """
-Multi-agent group chat completion endpoint.
+Multi-agent group chat completion endpoint (SSE streaming).
 
-Uses a simple route-and-stream pattern:
-  1. A fast router LLM call picks which agent(s) should respond.
-  2. Each selected agent streams tokens directly via llm.astream().
+Simple loop:
+  1. Router picks who should speak next (given full shared history).
+  2. That agent streams its response.
+  3. Repeat until router returns [] or 5 agent responses reached.
 
-No graph framework, no background tasks, no queues.
+All parties see the same shared history — no synthetic prompts are injected.
 """
 
 import json
@@ -25,14 +26,14 @@ from src.routers.swarms.langgraph_schemas import LanggraphSwarmCompletionRequest
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.multi_agent import route_message, stream_agent
-from src.utils.langsmith import get_langsmith_callbacks
+from src.multi_agent import route_next_speaker, stream_agent
+from src.multi_agent.session_logger import SessionLogger
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 _DEFAULT_PROVIDER = "openai"
-_langsmith_cbs = get_langsmith_callbacks("multi-agent-swarm")
+_MAX_RESPONSES_PER_TURN = 5
 
 
 def _db_retry_once(db, label: str, fn):
@@ -75,10 +76,10 @@ def _credential_type_for(provider: str) -> Optional[str]:
 def _create_llm(provider: str, model: str, api_key: str, *, streaming: bool):
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7, callbacks=_langsmith_cbs)
+        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7, callbacks=_langsmith_cbs)
+        return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
     raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -105,6 +106,7 @@ async def _generator(
     db,
     auth: dict,
 ) -> AsyncGenerator[str, None]:
+    slog: SessionLogger | None = None
     try:
         account_id = int(auth["id"]) if isinstance(auth["id"], str) else auth["id"]
 
@@ -150,9 +152,7 @@ async def _generator(
                 "- NEVER speak on behalf of other participants — let them answer for themselves.\n"
                 "- Do NOT end every message with a question. Sometimes just share "
                 "a thought, react, or make a statement.\n"
-                "- Be direct. If someone asks who you were talking to, answer honestly.\n"
-                "- Avoid filler like \"I appreciate your perspective\" — just respond.\n"
-                "- Keep it concise. A few sentences is usually enough."
+                "- Be direct. Keep it concise. A few sentences is usually enough."
             )
             agent_configs[w.agentName] = {
                 "system_prompt": full_prompt,
@@ -211,6 +211,7 @@ async def _generator(
 
         chat_session_id = session.id
         prompt = request_body.prompt
+        slog = SessionLogger(request_body.sessionId)
         db.close()
 
         # --- persist user message ---
@@ -219,57 +220,64 @@ async def _generator(
         except Exception:
             pass
 
-        # --- Step 1: Route — pick who should speak ---
-        speakers = await route_message(prompt, history, agent_list, router_llm)
-        print(f"[MULTI-AGENT] routed to: {speakers}", flush=True)
+        history.append({"role": "user", "content": prompt})
 
-        # --- Step 2: Stream each speaker sequentially ---
+        # --- main loop: route → speak → persist → repeat ---
         yield _sse({"event": "swarm_run_start"})
 
-        running_history = list(history)
-        multi = len(speakers) > 1
-        agent_outputs: dict[str, str] = {}
-        for i, name in enumerate(speakers):
+        all_outputs: list[dict] = []
+        response_count = 0
+
+        while response_count < _MAX_RESPONSES_PER_TURN:
+            speakers = await route_next_speaker(history, agent_list, router_llm, session_logger=slog)
+            slog.log_route(history[-1].get("content", "")[:80], speakers)
+
+            if not speakers:
+                break
+
+            name = speakers[0]
             cfg = agent_configs.get(name)
             if not cfg:
-                continue
-
-            if not multi or i == 0:
-                effective_prompt = prompt
-            else:
-                effective_prompt = "Continue the conversation."
+                break
 
             yield _sse({"event": "swarm_agent_start", "agentName": name})
+            slog.log_agent_start(name, len(history), history[-1].get("content", "")[:80])
+            t0 = SessionLogger.timer()
 
             full_text = ""
             async for token in stream_agent(
                 system_prompt=cfg["system_prompt"],
-                history=running_history,
-                prompt=effective_prompt,
+                history=history,
                 llm=cfg["llm"],
                 agent_name=name,
+                session_logger=slog,
             ):
                 full_text += token
                 yield _sse({"event": "swarm_chat_model_stream", "agentName": name, "data": token})
 
             yield _sse({"event": "swarm_agent_end", "agentName": name})
-            agent_outputs[name] = full_text
-            running_history.append({"role": "assistant", "content": full_text, "agent_name": name})
-            print(f"[MULTI-AGENT] {name}: {full_text!r}", flush=True)
+            slog.log_agent_end(name, full_text, SessionLogger.timer() - t0)
 
-        yield _sse({"event": "swarm_run_end", "data": agent_outputs})
+            history.append({"role": "assistant", "content": full_text, "agent_name": name})
+            all_outputs.append({"agentName": name, "content": full_text})
 
-        # --- persist AI messages ---
-        try:
-            for agent_name, content in agent_outputs.items():
-                if content:
-                    _store_ai_msg(chat_session_id, content, agent_name=agent_name)
-        except Exception:
-            pass
+            try:
+                _store_ai_msg(chat_session_id, full_text, agent_name=name)
+            except Exception:
+                pass
+
+            response_count += 1
+
+        yield _sse({"event": "swarm_run_end", "data": {o["agentName"]: o["content"] for o in all_outputs}})
 
     except Exception as e:
         import traceback
         traceback.print_exc()
+        if slog:
+            try:
+                slog.log_error("generator", e)
+            except Exception:
+                pass
         yield _sse_error("Internal server error", str(e))
 
 

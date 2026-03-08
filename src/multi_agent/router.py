@@ -1,28 +1,45 @@
 """
-Route a user message to the appropriate agent(s) in a group chat.
+Route a user message to the appropriate agent in a group chat.
 
-Makes a single fast LLM call with JSON structured output to decide
-who should speak next. Returns an ordered list of display names.
+A single fast LLM call examines the full conversation history and
+decides who (if anyone) should speak next.  Returns one name or
+an empty list.
 """
 
+from __future__ import annotations
+
 import json
-from typing import List, Dict
+from typing import TYPE_CHECKING, List, Dict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
 
+if TYPE_CHECKING:
+    from .session_logger import SessionLogger
 
-async def route_message(
-    prompt: str,
+
+def _format_history(history: List[Dict[str, str]]) -> str:
+    lines = []
+    for h in history[-20:]:
+        speaker = h.get("agent_name")
+        if speaker:
+            label = f"[ai: {speaker}]"
+        else:
+            label = "[human]"
+        lines.append(f"{label} {h.get('content', '')}")
+    return "\n".join(lines)
+
+
+async def route_next_speaker(
     history: List[Dict[str, str]],
     agents: List[Dict[str, str]],
     llm: BaseChatModel,
+    session_logger: SessionLogger | None = None,
 ) -> List[str]:
-    """Return an ordered list of agent display names that should respond.
+    """Return the single agent that should speak next, or ``[]`` to stop.
 
-    *agents* is a list of dicts with keys ``name`` and ``description``.
-    Usually returns a single name; multiple only when the user explicitly
-    addresses more than one participant.
+    Works for both the initial turn (human just spoke) and continuation
+    turns (an agent just spoke and someone may need to reply).
     """
     agent_list = "\n".join(
         f"- {a['name']}: {a.get('description') or 'no description'}"
@@ -30,37 +47,29 @@ async def route_message(
     )
     names_json = json.dumps([a["name"] for a in agents])
 
-    history_block = ""
-    if history:
-        lines = []
-        for h in history[-20:]:
-            role = h.get("role", "user")
-            speaker = h.get("agent_name")
-            label = speaker if speaker else role
-            lines.append(f"{label}: {h.get('content', '')}")
-        history_block = "\n".join(lines) + "\n\n"
-
     system = (
-        "You decide who speaks next in a group chat.\n\n"
+        "You decide who should speak next in a group chat.\n\n"
         f"Participants:\n{agent_list}\n\n"
+        "Look at the conversation history and decide which participant "
+        "(if any) should respond to the LAST message.\n\n"
         "Rules:\n"
-        "- Return ONLY a JSON array of participant names in speaking order.\n"
-        "- Pick whoever the human is talking to or about.\n"
-        "- If the message is vague (e.g. \"hey\"), pick one natural responder.\n"
-        "- Include multiple names if the human addresses multiple people.\n"
-        "- If the human asks for a back-and-forth conversation (e.g. \"talk for 3 turns each\"), "
-        "repeat names in alternating order for the requested number of turns, "
-        "e.g. [\"A\",\"B\",\"A\",\"B\",\"A\",\"B\"].\n"
+        "- If the last message is from a human, pick whoever they are talking to.\n"
+        "- If the last message is from a participant and it asks a question to "
+        "or addresses another participant, pick that participant.\n"
+        "- If the conversation has reached a natural pause, return [].\n"
+        "- NEVER pick the same participant who sent the last message.\n"
+        "- Return ONLY a JSON array with at most ONE name, or [].\n"
         f"- Valid names: {names_json}\n"
         "- No explanation, just the JSON array."
     )
 
-    user_content = f"{history_block}Human: {prompt}"
+    history_block = _format_history(history)
 
-    response = await llm.ainvoke([
-        SystemMessage(content=system),
-        HumanMessage(content=user_content),
-    ])
+    messages = [SystemMessage(content=system), HumanMessage(content=history_block)]
+    if session_logger:
+        session_logger.log_llm_messages("router", messages)
+
+    response = await llm.ainvoke(messages)
 
     text = response.content.strip()
     try:
@@ -69,9 +78,8 @@ async def route_message(
             valid_names = {a["name"] for a in agents}
             result = [n for n in parsed if n in valid_names]
             if result:
-                return result
+                return result[:1]
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # Fallback: return the first agent
-    return [agents[0]["name"]]
+    return []
