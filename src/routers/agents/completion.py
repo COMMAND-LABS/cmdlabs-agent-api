@@ -10,7 +10,6 @@ Supports:
 from typing import Optional
 import time
 import uuid
-import os
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import OperationalError
@@ -25,13 +24,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from dotenv import load_dotenv
 
+from src.utils.langsmith import get_langsmith_callbacks
 from src.utils.template_variables import resolve_template_variables, build_variable_context
 from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
 from langchain_classic.memory import ConversationBufferMemory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tracers import LangChainTracer
-from langsmith import Client
-
 from src.tools import create_tools_from_agent_config, CredentialError
 from src.utils.pdf_to_images import build_pdf_message
 from src.routers.agents.helpers import (
@@ -52,18 +49,7 @@ router = APIRouter()
 
 load_dotenv()
 
-if not os.getenv("LANGCHAIN_API_KEY") and os.getenv("LANGSMITH_API_KEY"):
-    os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
-
-callbacks = [
-    LangChainTracer(
-        project_name="dynamic-agent",
-        client=Client(
-            api_url=os.getenv("LANGSMITH_ENDPOINT"),
-            api_key=os.getenv("LANGSMITH_API_KEY")
-        )
-    )
-] if os.getenv("LANGSMITH_API_KEY") else []
+callbacks = get_langsmith_callbacks("dynamic-agent")
 
 
 def _is_transient_ssl_db_error(exc: Exception) -> bool:

@@ -97,7 +97,8 @@ def store_ai_message(
     session_id: int,
     content: str,
     tool_calls: Optional[List[Dict[str, Any]]] = None,
-    validate: bool = True
+    agent_name: Optional[str] = None,
+    validate: bool = True,
 ) -> Optional[ChatMessage]:
     """
     Store an AI message to the database.
@@ -107,6 +108,7 @@ def store_ai_message(
         session_id: The chat session's internal ID (not UUID)
         content: The AI's response content
         tool_calls: Optional list of tool calls made during the response
+        agent_name: Optional agent display name (multi-agent / swarm flows)
         validate: Whether to validate against schema
         
     Returns:
@@ -118,7 +120,9 @@ def store_ai_message(
             "content": content
         }
         
-        # Add tool calls if any
+        if agent_name:
+            message_obj["agentName"] = agent_name
+
         if tool_calls:
             message_obj["toolCalls"] = tool_calls
         

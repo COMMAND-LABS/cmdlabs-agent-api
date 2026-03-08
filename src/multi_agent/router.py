@@ -35,7 +35,9 @@ async def route_message(
         lines = []
         for h in history[-20:]:
             role = h.get("role", "user")
-            lines.append(f"{role}: {h.get('content', '')}")
+            speaker = h.get("agent_name")
+            label = speaker if speaker else role
+            lines.append(f"{label}: {h.get('content', '')}")
         history_block = "\n".join(lines) + "\n\n"
 
     system = (

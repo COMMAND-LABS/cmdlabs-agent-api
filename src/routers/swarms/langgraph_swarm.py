@@ -26,11 +26,13 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from src.multi_agent import route_message, stream_agent
+from src.utils.langsmith import get_langsmith_callbacks
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 _DEFAULT_PROVIDER = "openai"
+_langsmith_cbs = get_langsmith_callbacks("multi-agent-swarm")
 
 
 def _db_retry_once(db, label: str, fn):
@@ -73,10 +75,10 @@ def _credential_type_for(provider: str) -> Optional[str]:
 def _create_llm(provider: str, model: str, api_key: str, *, streaming: bool):
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
+        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7, callbacks=_langsmith_cbs)
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
+        return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7, callbacks=_langsmith_cbs)
     raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -132,15 +134,18 @@ async def _generator(
         # --- build agent configs ---
         sw = request_body.swarm
         all_display_names = [w.agentName for w in sw.workers]
-        room_members = ", ".join(all_display_names)
 
         agent_configs: dict[str, dict] = {}
         agent_list: list[dict[str, str]] = []
         for w in sw.workers:
             base_prompt = w.systemPrompt or f"You are {w.agentName}."
+            participants = ", ".join(
+                f"{n} (you)" if n == w.agentName else n
+                for n in all_display_names
+            )
             full_prompt = (
                 f"{base_prompt}\n\n"
-                f"You are in a group conversation with a human and: {room_members}.\n"
+                f"Group conversation participants: Human, {participants}.\n"
                 "- Speak naturally as yourself. Only say your own words.\n"
                 "- Do NOT end every message with a question. Sometimes just share "
                 "a thought, react, or make a statement.\n"
@@ -193,17 +198,15 @@ async def _generator(
             .all(),
         )
 
-        history: list[dict[str, str]] = []
+        history: list[dict] = []
         for msg in db_messages:
             md = msg.message
             if isinstance(md, dict) and "role" in md and "content" in md:
                 role = "user" if md["role"] == "human" else "assistant"
-                content = md["content"]
-                if role == "assistant":
-                    agent_name = md.get("agentName")
-                    if agent_name:
-                        content = f"[{agent_name}]: {content}"
-                history.append({"role": role, "content": content})
+                entry: dict = {"role": role, "content": md["content"]}
+                if role == "assistant" and md.get("agentName"):
+                    entry["agent_name"] = md["agentName"]
+                history.append(entry)
 
         chat_session_id = session.id
         prompt = request_body.prompt
@@ -250,7 +253,7 @@ async def _generator(
 
             yield _sse({"event": "swarm_agent_end", "agentName": name})
             agent_outputs[name] = full_text
-            running_history.append({"role": "assistant", "content": f"[{name}]: {full_text}"})
+            running_history.append({"role": "assistant", "content": full_text, "agent_name": name})
             print(f"[MULTI-AGENT] {name}: {full_text!r}", flush=True)
 
         yield _sse({"event": "swarm_run_end", "data": agent_outputs})
