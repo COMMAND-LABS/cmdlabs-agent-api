@@ -5,10 +5,11 @@ configured log directory.  Entries are appended across requests so
 the full conversation is captured in one place.
 """
 
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 
 class SessionLogger:
@@ -33,8 +34,9 @@ class SessionLogger:
             for line in body.splitlines():
                 f.write(f"  {line}\n")
 
-    def log_route(self, prompt: str, speakers: List[str]) -> None:
-        self._write(f"ROUTE  prompt={prompt!r}  speakers={speakers}")
+    def log_route(self, prompt: str, speakers: List[str], reason: str | None = None) -> None:
+        reason_text = reason or ""
+        self._write(f"ROUTE  prompt={prompt!r}  speakers={speakers}  reason={reason_text!r}")
 
     def log_llm_messages(self, label: str, messages: list) -> None:
         """Log the full message list sent to an LLM call.
@@ -54,6 +56,22 @@ class SessionLogger:
             tag = f"{role}({name})" if name else role
             lines.append(f"[{tag}] {content}")
         self._write_block(f"LLM_MESSAGES  step={label!r}  count={len(messages)}", "\n".join(lines))
+
+    def log_api_request_body(self, label: str, provider: str, body: Any) -> None:
+        """Log the raw JSON request body sent to a provider API."""
+        try:
+            rendered = json.dumps(body, indent=2, ensure_ascii=True, default=str)
+        except TypeError:
+            rendered = repr(body)
+        self._write_block(f"API_REQUEST_BODY  step={label!r}  provider={provider!r}", rendered)
+
+    def log_api_response_body(self, label: str, provider: str, body: Any) -> None:
+        """Log the raw JSON response body returned by a provider API."""
+        try:
+            rendered = json.dumps(body, indent=2, ensure_ascii=True, default=str)
+        except TypeError:
+            rendered = repr(body)
+        self._write_block(f"API_RESPONSE_BODY  step={label!r}  provider={provider!r}", rendered)
 
     def log_agent_start(self, agent_name: str, history_len: int, prompt: str) -> None:
         self._write(f"AGENT_START  agent={agent_name!r}  history_msgs={history_len}  prompt={prompt!r}")

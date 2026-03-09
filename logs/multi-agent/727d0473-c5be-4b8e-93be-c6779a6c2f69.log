@@ -1,8 +1,0 @@
-[2026-03-08T19:11:25.149939Z] ROUTE  prompt='Hey Jesus'  speakers=['Jesus of Nazareth Agent']
-[2026-03-08T19:11:25.151221Z] AGENT_START  agent='Jesus of Nazareth Agent'  history_msgs=0  prompt='Hey Jesus'
-[2026-03-08T19:11:25.677690Z] AGENT_END  agent='Jesus of Nazareth Agent'  elapsed=0.53s  response="Hello. It's good to be here with you. How can I help you today?"
-[2026-03-08T19:11:57.138581Z] ROUTE  prompt='Hey Martin'  speakers=['Jesus of Nazareth Agent', 'Martin Luther King Jr.']
-[2026-03-08T19:11:57.139680Z] AGENT_START  agent='Jesus of Nazareth Agent'  history_msgs=2  prompt='Hey Martin'
-[2026-03-08T19:11:57.999895Z] AGENT_END  agent='Jesus of Nazareth Agent'  elapsed=0.86s  response="Greetings! It's a pleasure to engage in conversation with you. What’s on your mind?"
-[2026-03-08T19:12:03.909823Z] AGENT_START  agent='Martin Luther King Jr.'  history_msgs=4  prompt='Continue the conversation.'
-[2026-03-08T19:12:05.583107Z] AGENT_END  agent='Martin Luther King Jr.'  elapsed=1.67s  response='I believe in the power of love and nonviolence to bring about change. It is essential for us to unite in our struggles for justice and equality. What are your thoughts on the importance of community i…'

@@ -32,8 +32,8 @@ from src.routers.swarms.langgraph_schemas import (
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.multi_agent import route_next_speaker, stream_agent
 from src.multi_agent.session_logger import SessionLogger
+from src.routers.swarms.plain_llm import generate_agent_reply_plain, route_next_speaker_plain
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
@@ -70,16 +70,6 @@ def _credential_type_for(provider: str) -> Optional[str]:
         "anthropic": ServiceName.ANTHROPIC_API_KEY,
         "ollama": None,
     }.get(provider)
-
-
-def _create_llm(provider: str, model: str, api_key: str, *, streaming: bool):
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, api_key=api_key, streaming=streaming, temperature=0.7)
-    raise ValueError(f"Unsupported provider: {provider}")
 
 
 def _store_user_msg(chat_session_id: int, prompt: str) -> None:
@@ -157,18 +147,17 @@ async def swarm_tts_next_turn(
         full_prompt = (
             f"{base_prompt}\n\n"
             f"Group conversation participants: Human, {participants}.\n"
-            "- Speak naturally as yourself. Only say your own words.\n"
-            "- NEVER speak on behalf of other participants — let them answer for themselves.\n"
-            "- Do NOT end every message with a question. Sometimes just share a thought, react, or make a statement.\n"
-            "- Be direct. Keep it concise. A few sentences is usually enough."
+            "- Speak naturally as yourself, in your own voice.\n"
+            "- Only say your own words. Do not speak for other participants.\n"
+            "- If the latest message is a simple greeting or direct check-in, a short natural reply is enough.\n"
+            "- Do not force a bigger discussion unless the conversation genuinely calls for it.\n"
+            "- Be concise. A few sentences is usually enough."
         )
         agent_configs[w.agentName] = {
             "system_prompt": full_prompt,
-            "llm": _create_llm(provider, w.modelName, api_key, streaming=True),
+            "model": w.modelName,
         }
         agent_list.append({"name": w.agentName, "description": w.agentDescription or ""})
-
-    router_llm = _create_llm(provider, sw.supervisor.modelName, api_key, streaming=False)
 
     # --- session & history ---
     try:
@@ -238,8 +227,15 @@ async def swarm_tts_next_turn(
         history.append({"role": "user", "content": prompt})
 
     # --- route: who should speak next? ---
-    speakers = await route_next_speaker(history, agent_list, router_llm, session_logger=slog)
-    slog.log_route(history[-1].get("content", "")[:80], speakers)
+    speakers, route_reason = await route_next_speaker_plain(
+        history=history,
+        agents=agent_list,
+        provider=provider,
+        model=sw.supervisor.modelName,
+        api_key=api_key,
+        session_logger=slog,
+    )
+    slog.log_route(history[-1].get("content", "")[:80], speakers, route_reason)
 
     if not speakers:
         return SwarmTtsNextTurnResponse(agentName="", content="", stateToken=None, done=True)
@@ -252,16 +248,15 @@ async def swarm_tts_next_turn(
     # --- generate agent response (agent sees the full shared history) ---
     slog.log_agent_start(name, len(history), history[-1].get("content", "")[:80])
     t0 = SessionLogger.timer()
-
-    full_text = ""
-    async for token in stream_agent(
+    full_text = await generate_agent_reply_plain(
+        provider=provider,
+        model=cfg["model"],
+        api_key=api_key,
         system_prompt=cfg["system_prompt"],
         history=history,
-        llm=cfg["llm"],
         agent_name=name,
         session_logger=slog,
-    ):
-        full_text += token
+    )
 
     slog.log_agent_end(name, full_text, SessionLogger.timer() - t0)
 

@@ -26,3 +26,5 @@ htmlcov/
 # IDE / OS
 .idea/
 .DS_Store
+
+logs
