@@ -82,12 +82,6 @@ def build_router_request(
         "Read the conversation as a natural dialogue, not as a strict turn-taking exercise.\n\n"
         "Guidance:\n"
         "- The ultimate goal is an aesthetically pleasing flow of conversation.\n"
-        "- Prefer the participant who is most clearly being addressed in the latest message.\n"
-        "- If the latest message names one participant, that participant should usually respond.\n"
-        "- Do not force another reply just to keep the conversation going.\n"
-        "- After a simple greeting or quick reply, it is often natural to stop.\n"
-        "- Only choose someone else when the latest message genuinely invites or needs their response.\n"
-        "- Never pick the participant who just spoke.\n"
         f"- Valid names: {names_json}\n\n"
         "Return ONLY a JSON object with this shape: "
         '{"next":["Valid Name"] or [],"reason":"short explanation"}'
