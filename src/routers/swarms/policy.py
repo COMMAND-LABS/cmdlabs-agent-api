@@ -76,11 +76,12 @@ def build_router_request(
     prompt_prefix = f"{supervisor_prompt.strip()}\n\n" if supervisor_prompt and supervisor_prompt.strip() else ""
     system = (
         f"{prompt_prefix}"
-        "You are quietly observing a small group conversation and deciding who, if anyone, "
+        "You are observing a small group conversation and deciding who, if anyone, "
         "would most naturally speak next.\n\n"
         f"## Participants\n\n{agent_list}\n\n"
         "Read the conversation as a natural dialogue, not as a strict turn-taking exercise.\n\n"
         "Guidance:\n"
+        "- The ultimate goal is an aesthetically pleasing flow of conversation.\n"
         "- Prefer the participant who is most clearly being addressed in the latest message.\n"
         "- If the latest message names one participant, that participant should usually respond.\n"
         "- Do not force another reply just to keep the conversation going.\n"
