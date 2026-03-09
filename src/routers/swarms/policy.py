@@ -72,13 +72,14 @@ def build_router_request(
         f"- {agent['name']}: {agent.get('description') or 'no description'}"
         for agent in agents
     )
+    participants_block = "- Human (user)\n" + agent_list
     names_json = json.dumps([agent["name"] for agent in agents])
     prompt_prefix = f"{supervisor_prompt.strip()}\n\n" if supervisor_prompt and supervisor_prompt.strip() else ""
     system = (
         f"{prompt_prefix}"
         "You are observing a small group conversation and deciding who, if anyone, "
         "would most naturally speak next.\n\n"
-        f"## Participants\n\n{agent_list}\n\n"
+        f"## Participants\n\n{participants_block}\n\n"
         "Read the conversation as a natural dialogue, not as a strict turn-taking exercise.\n\n"
         "Guidance:\n"
         "- The ultimate goal is an aesthetically pleasing flow of conversation.\n"
