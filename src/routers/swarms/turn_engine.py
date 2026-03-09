@@ -147,7 +147,10 @@ async def stream_turn(context: PreparedTurnContext) -> AsyncGenerator[StreamEven
     )
     started_at = context.session_logger.timer()
 
-    yield StreamEvent(event="swarm_agent_start", data={"agentName": agent.name})
+    yield StreamEvent(
+        event="swarm_agent_start",
+        data={"agentName": agent.name, "routeReason": decision.reason},
+    )
     content = ""
     async for chunk in stream_request(
         provider=context.provider,
