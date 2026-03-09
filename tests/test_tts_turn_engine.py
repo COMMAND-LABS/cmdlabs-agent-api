@@ -98,6 +98,25 @@ def test_execute_and_stream_turn_match(tmp_path, monkeypatch):
     assert final_event.data["routeReason"] == json_result.route_reason
 
 
+def test_execute_turn_blocks_same_speaker_repeat(tmp_path, monkeypatch):
+    async def fake_complete_request(*, provider, model, api_key, request, session_logger=None):
+        assert request.label == "router"
+        return '{"next":["Jesus"],"reason":"Jesus should keep talking."}'
+
+    monkeypatch.setattr("src.routers.swarms.turn_engine.complete_request", fake_complete_request)
+
+    context = _build_context(tmp_path)
+    context.history = [
+        ConversationEntry(role="user", content="Hey Jesus"),
+        ConversationEntry(role="assistant", content="Hello! How are you?", agent_name="Jesus"),
+    ]
+
+    result = asyncio.run(execute_turn(context))
+    assert result.done is True
+    assert result.agent_name == ""
+    assert result.route_reason == "Suppressed same-speaker repeat."
+
+
 def test_signed_turn_state_rejects_stale_counts():
     state = TurnState(
         session_id="11111111-1111-1111-1111-111111111111",

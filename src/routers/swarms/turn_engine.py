@@ -27,6 +27,12 @@ async def route_turn(context: PreparedTurnContext) -> RouterDecision:
         session_logger=context.session_logger,
     )
     decision = parse_router_decision(text, (agent["name"] for agent in context.agent_list))
+    if decision.next_speakers:
+        last = context.history[-1] if context.history else None
+        last_speaker = last.agent_name if last and last.role == "assistant" else None
+        if last_speaker and decision.next_speakers[0] == last_speaker:
+            # Enforce turn-taking deterministically; do not rely only on prompt compliance.
+            decision = RouterDecision(next_speakers=[], reason="Suppressed same-speaker repeat.")
     latest_prompt = context.history[-1].content[:80] if context.history else ""
     context.session_logger.log_route(latest_prompt, decision.next_speakers, decision.reason)
     return decision
