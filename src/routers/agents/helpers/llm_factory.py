@@ -13,7 +13,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 # Default model configuration (used for v1 and v2 configs)
 DEFAULT_MODEL_CONFIG = {
     "provider": "openai",
-    "model": "gpt-4o-mini"
+    # "model": "gpt-4o-mini"
+    "model": "gpt-5.4"
 }
 
 
