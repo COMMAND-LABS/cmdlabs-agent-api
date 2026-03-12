@@ -38,7 +38,7 @@ def _anthropic_payload(messages: list[dict[str, str]]) -> tuple[str, list[dict[s
             system_parts.append(content)
             continue
         if name:
-            content = f"[{name}] {content}"
+            content = f"{name}: {content}"
         chat_messages.append({"role": role, "content": content})
     return "\n\n".join(system_parts), chat_messages
 
@@ -59,39 +59,6 @@ def _response_to_loggable_body(response) -> object:
     return response
 
 
-def _responses_api_payload(
-    *,
-    model: str,
-    messages: list[dict[str, str]],
-    max_tokens: int,
-) -> dict[str, object]:
-    instructions_parts: list[str] = []
-    input_messages: list[dict[str, str]] = []
-
-    for message in messages:
-        role = message.get("role", "user")
-        content = message.get("content", "")
-        name = message.get("name")
-
-        if role == "system":
-            instructions_parts.append(content)
-            continue
-
-        if name:
-            content = f"[{name}] {content}"
-        input_messages.append({"role": role, "content": content})
-
-    request_body: dict[str, object] = {
-        "model": model,
-        "input": input_messages,
-        "max_output_tokens": max_tokens,
-        "reasoning": {"effort": "none"},
-    }
-    if instructions_parts:
-        request_body["instructions"] = "\n\n".join(instructions_parts)
-    return request_body
-
-
 def _chat_completions_payload(
     *,
     model: str,
@@ -105,6 +72,8 @@ def _chat_completions_payload(
         "messages": messages,
         token_limit_field: max_tokens,
     }
+    if _is_gpt5_model(model):
+        request_body["reasoning_effort"] = "none"
     if _openai_supports_temperature(model):
         request_body["temperature"] = temperature
     return request_body
@@ -121,23 +90,6 @@ async def complete_request(
     """Return a plain text completion for the given provider."""
     if provider == "openai":
         client = AsyncOpenAI(api_key=api_key)
-        if _is_gpt5_model(model):
-            request_body = _responses_api_payload(
-                model=model,
-                messages=request.messages,
-                max_tokens=request.max_tokens,
-            )
-            if session_logger:
-                session_logger.log_api_request_body(request.label, provider, request_body)
-            response = await client.responses.create(**request_body)
-            if session_logger and request.log_response_body:
-                session_logger.log_api_response_body(
-                    request.label,
-                    provider,
-                    _response_to_loggable_body(response),
-                )
-            return getattr(response, "output_text", "").strip()
-
         request_body = _chat_completions_payload(
             model=model,
             messages=request.messages,
@@ -156,7 +108,7 @@ async def complete_request(
         return (response.choices[0].message.content or "").strip()
 
     if provider == "anthropic":
-        system, chat_messages = _anthropic_payload(messages)
+        system, chat_messages = _anthropic_payload(request.messages)
         client = AsyncAnthropic(api_key=api_key)
         request_body = {
             "model": model,
@@ -190,27 +142,6 @@ async def stream_request(
     """Yield text deltas from the given provider."""
     if provider == "openai":
         client = AsyncOpenAI(api_key=api_key)
-        if _is_gpt5_model(model):
-            request_body = _responses_api_payload(
-                model=model,
-                messages=request.messages,
-                max_tokens=request.max_tokens,
-            )
-            if session_logger:
-                session_logger.log_api_request_body(request.label, provider, request_body)
-            async with client.responses.stream(**request_body) as stream:
-                async for event in stream:
-                    if event.type == "response.output_text.delta" and event.delta:
-                        yield event.delta
-                if session_logger and request.log_response_body:
-                    final_response = await stream.get_final_response()
-                    session_logger.log_api_response_body(
-                        request.label,
-                        provider,
-                        _response_to_loggable_body(final_response),
-                    )
-            return
-
         request_body = _chat_completions_payload(
             model=model,
             messages=request.messages,

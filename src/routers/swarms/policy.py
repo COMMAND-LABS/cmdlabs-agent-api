@@ -13,10 +13,18 @@ _ROUTER_MAX_MESSAGES = 20
 _ROUTER_MAX_TOKENS = 256
 _AGENT_MAX_TOKENS = 1024
 _DEFAULT_TEMPERATURE = 0.7
+_ROUTER_AGENT_DESCRIPTION_MAX_CHARS = 220
 
 
 def sanitize_name(name: str) -> str:
     return _INVALID_NAME_CHARS.sub("_", name)
+
+
+def _normalize_router_description(text: str) -> str:
+    normalized = " ".join(text.split()).strip()
+    if len(normalized) <= _ROUTER_AGENT_DESCRIPTION_MAX_CHARS:
+        return normalized
+    return normalized[: _ROUTER_AGENT_DESCRIPTION_MAX_CHARS - 3].rstrip() + "..."
 
 
 def build_agent_definitions(swarm: LanggraphSwarmConfigInput) -> dict[str, AgentDefinition]:
@@ -38,9 +46,15 @@ def build_agent_definitions(swarm: LanggraphSwarmConfigInput) -> dict[str, Agent
             "- Do not force a bigger discussion unless the conversation genuinely calls for it.\n"
             "- Be concise. A few sentences is usually enough."
         )
+        router_description = (worker.agentDescription or "").strip()
+        if not router_description:
+            router_description = (worker.systemPrompt or "").strip()
+        if not router_description:
+            router_description = f"You are {worker.agentName}."
+        router_description = _normalize_router_description(router_description)
         definitions[worker.agentName] = AgentDefinition(
             name=worker.agentName,
-            description=worker.agentDescription or "",
+            description=router_description,
             model=worker.modelName,
             system_prompt=system_prompt,
         )
