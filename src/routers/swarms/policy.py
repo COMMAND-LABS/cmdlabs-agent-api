@@ -42,6 +42,7 @@ def build_agent_definitions(swarm: LanggraphSwarmConfigInput) -> dict[str, Agent
             f"Group conversation participants: Human, {participants}.\n"
             "- Speak naturally as yourself, in your own voice.\n"
             "- Only say your own words. Do not speak for other participants.\n"
+            "- Do not prefix your reply with your name, title, or labels like [Name] or Name:.\n"
             "- If the latest message is a simple greeting or direct check-in, a short natural reply is enough.\n"
             "- Do not force a bigger discussion unless the conversation genuinely calls for it.\n"
             "- Be concise. A few sentences is usually enough."

@@ -1,15 +1,60 @@
 from __future__ import annotations
 
+import re
 from typing import AsyncGenerator
 
 from src.routers.swarms.plain_llm import complete_request, stream_request
-from src.routers.swarms.policy import build_agent_reply_request, build_router_request, parse_router_decision
+from src.routers.swarms.policy import (
+    build_agent_reply_request,
+    build_router_request,
+    parse_router_decision,
+    sanitize_name,
+)
 from src.routers.swarms.repository import persist_ai_message
 from src.routers.swarms.turn_state import encode_turn_state
 from src.routers.swarms.types import PreparedTurnContext, RouterDecision, StreamEvent, TurnResult, TurnState
 
 
 _MAX_RESPONSES_PER_TURN = 5
+_BRACKET_LABEL_PATTERN = re.compile(r"^\s*\[([^\]\n]{1,80})\]\s*")
+_COLON_LABEL_PATTERN = re.compile(r"^\s*([^\n:]{1,80}):\s*")
+_NON_ALNUM_PATTERN = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_name_token(value: str) -> str:
+    return _NON_ALNUM_PATTERN.sub("", value.strip().lower())
+
+
+def _is_name_match(label: str, agent_name: str) -> bool:
+    normalized_label = _normalize_name_token(label)
+    normalized_agent = _normalize_name_token(agent_name)
+    if not normalized_label or not normalized_agent:
+        return False
+    if normalized_label == normalized_agent:
+        return True
+    if len(normalized_label) >= 6 and normalized_label in normalized_agent:
+        return True
+    if len(normalized_agent) >= 6 and normalized_agent in normalized_label:
+        return True
+    return False
+
+
+def _strip_self_label_prefix(content: str, agent_name: str) -> str:
+    text = content.lstrip()
+    aliases = (agent_name, sanitize_name(agent_name))
+
+    while True:
+        bracket_match = _BRACKET_LABEL_PATTERN.match(text)
+        if bracket_match and any(_is_name_match(bracket_match.group(1), alias) for alias in aliases):
+            text = text[bracket_match.end() :].lstrip()
+            continue
+
+        colon_match = _COLON_LABEL_PATTERN.match(text)
+        if colon_match and any(_is_name_match(colon_match.group(1), alias) for alias in aliases):
+            text = text[colon_match.end() :].lstrip()
+            continue
+        break
+    return text
 
 
 async def route_turn(context: PreparedTurnContext) -> RouterDecision:
@@ -75,6 +120,7 @@ async def execute_turn(context: PreparedTurnContext) -> TurnResult:
         request=request,
         session_logger=context.session_logger,
     )
+    content = _strip_self_label_prefix(content, agent.name)
     context.session_logger.log_agent_end(
         agent.name,
         content,
@@ -165,6 +211,7 @@ async def stream_turn(context: PreparedTurnContext) -> AsyncGenerator[StreamEven
             data={"agentName": agent.name, "data": chunk},
         )
 
+    content = _strip_self_label_prefix(content, agent.name)
     yield StreamEvent(event="swarm_agent_end", data={"agentName": agent.name})
     context.session_logger.log_agent_end(
         agent.name,
