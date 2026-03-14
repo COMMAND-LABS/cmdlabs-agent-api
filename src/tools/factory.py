@@ -2,11 +2,12 @@
 Tool Factory
 
 Creates tool instances from agent config definitions.
-Supports both v1 (knowledgeBases) and v2 (tools) config formats.
+Supports v1 (knowledgeBases) and v2+ (tools) config formats.
 """
 from typing import Dict, Any, List, Optional
 from langchain_core.tools import StructuredTool
 from .registry import ToolRegistry
+from .agent_config_versions import extract_tool_configs_for_agent
 
 
 async def create_tool_from_config(
@@ -80,7 +81,7 @@ async def create_tools_from_agent_config(
     """
     Create all tools from an agent configuration.
     
-    Supports both v1 (knowledgeBases) and v2 (tools) config formats.
+    Supports v1 (knowledgeBases) and v2+ (tools) config formats.
     
     Args:
         agent_config: Full agent config with 'version' and 'data'
@@ -120,60 +121,23 @@ async def create_tools_from_agent_config(
         
         tools = await create_tools_from_agent_config(agent_config, account_id, db, auth_token)
     """
-    version = agent_config.get('version', 1)
-    config_data = agent_config.get('data', {})
     tools = []
+    version, version_label, tool_configs = extract_tool_configs_for_agent(agent_config)
     
     print(f"[TOOL FACTORY] Creating tools from agent config v{version}")
     print(f"[TOOL FACTORY] Received kwargs: {list(kwargs.keys())}")
-    
-    if version == 1:
-        # v1: knowledgeBases format
-        knowledge_bases = config_data.get('knowledgeBases', [])
-        print(f"[TOOL FACTORY] Found {len(knowledge_bases)} knowledge bases (v1 format)")
-        
-        # Convert each knowledge base to a vectorSearch tool config
-        for kb in knowledge_bases:
-            # Map v1 knowledge base to v2 vectorSearch tool
-            tool_config = {
-                "type": "vectorSearch",
-                "provider": kb.get('provider'),
-                "index": kb.get('index'),
-                "namespace": kb.get('namespace'),
-                "description": kb.get('description', f"Search the {kb.get('namespace')} knowledge base"),
-                "topK": 10  # Default for v1 configs
-            }
-            
-            tool = await create_tool_from_config(
-                tool_config=tool_config,
-                account_id=account_id,
-                db=db,
-                auth_token=auth_token,
-                **kwargs
-            )
-            
-            if tool:
-                tools.append(tool)
-    
-    elif version in [2, 3]:
-        # v2/v3: tools format (v3 adds model config but uses same tools structure)
-        tool_configs = config_data.get('tools', [])
-        print(f"[TOOL FACTORY] Found {len(tool_configs)} tools (v2 format)")
-        
-        for tool_config in tool_configs:
-            tool = await create_tool_from_config(
-                tool_config=tool_config,
-                account_id=account_id,
-                db=db,
-                auth_token=auth_token,
-                **kwargs
-            )
-            
-            if tool:
-                tools.append(tool)
-    
-    else:
-        print(f"[TOOL FACTORY] Unsupported config version: {version}")
-    
+    print(f"[TOOL FACTORY] Found {len(tool_configs)} tools ({version_label} format)")
+
+    for tool_config in tool_configs:
+        tool = await create_tool_from_config(
+            tool_config=tool_config,
+            account_id=account_id,
+            db=db,
+            auth_token=auth_token,
+            **kwargs
+        )
+        if tool:
+            tools.append(tool)
+
     print(f"[TOOL FACTORY] Created {len(tools)} tools successfully")
     return tools
