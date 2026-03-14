@@ -1,1 +1,1 @@
-from .completion import router
+from .router import router

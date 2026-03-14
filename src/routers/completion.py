@@ -1,2 +1,2 @@
-"""Completion router - re-export from agents.completion for main app."""
-from src.routers.agents.completion import router
+"""Agents router - re-export from agents.router for main app."""
+from src.routers.agents.router import router
