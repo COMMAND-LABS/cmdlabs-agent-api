@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 
 from src.utils.langsmith import get_langsmith_callbacks
 from src.utils.template_variables import resolve_template_variables, build_variable_context
-from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+from langchain_classic.agents import AgentExecutor, create_openai_tools_agent, create_tool_calling_agent
 from langchain_classic.memory import ConversationBufferMemory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from src.tools import create_tools_from_agent_config, CredentialError
@@ -240,13 +240,15 @@ async def generator(
                 ("human", "{input}"),
                 MessagesPlaceholder(variable_name="agent_scratchpad")
             ])
-            llm_with_tools = llm.bind_tools(tools)
-            agent_langchain = create_openai_tools_agent(
-                llm_with_tools.with_config({"tags": ["agent_llm"]}),
-                tools,
-                prompt_template
-            )
-            print(f"[AGENT COMPLETION] Agent created with {len(tools)} tools bound to LLM")
+            tagged_llm = llm.with_config({"tags": ["agent_llm"]})
+            if provider == "openai":
+                agent_langchain = create_openai_tools_agent(tagged_llm, tools, prompt_template)
+            else:
+                # Anthropic and other providers require provider-native tool binding.
+                # create_openai_tools_agent hard-serialises tools as type:"function"
+                # which Anthropic rejects with a 400.
+                agent_langchain = create_tool_calling_agent(tagged_llm, tools, prompt_template)
+            print(f"[AGENT COMPLETION] Agent created with {len(tools)} tools for provider '{provider}'")
         else:
             prompt_template = ChatPromptTemplate.from_messages([
                 ("system", system_prompt),
