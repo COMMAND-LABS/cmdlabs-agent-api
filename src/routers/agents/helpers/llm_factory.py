@@ -4,6 +4,7 @@ LLM factory for creating language model instances based on agent config.
 Supports:
 - OpenAI (gpt-4o-mini, gpt-4o, etc.)
 - Anthropic (claude-3-5-sonnet, claude-3-5-haiku, etc.)
+- Google (gemini-2.0-flash, gemini-1.5-pro, etc.)
 - Ollama (llama3.2, mistral, etc.)
 """
 from typing import Dict, Any, Optional, Tuple
@@ -76,6 +77,8 @@ def create_llm(
         return _create_openai_llm(model, credentials, streaming, temperature), provider
     elif provider == 'anthropic':
         return _create_anthropic_llm(model, credentials, streaming, temperature), provider
+    elif provider == 'google':
+        return _create_google_llm(model, credentials, streaming, temperature), provider
     elif provider == 'ollama':
         return _create_ollama_llm(model, streaming, temperature), provider
     else:
@@ -125,6 +128,27 @@ def _create_anthropic_llm(
     )
 
 
+def _create_google_llm(
+    model: str,
+    credentials: Dict[str, str],
+    streaming: bool,
+    temperature: float
+) -> BaseChatModel:
+    """Create Google Gemini LLM instance."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    api_key = credentials.get('google')
+    if not api_key:
+        raise ValueError("Google Gemini API key not found. Please add your Google Gemini API key in account settings.")
+
+    return ChatGoogleGenerativeAI(
+        model=model,
+        google_api_key=api_key,
+        streaming=streaming,
+        temperature=temperature,
+    )
+
+
 def _create_ollama_llm(
     model: str,
     streaming: bool,
@@ -160,6 +184,7 @@ def get_required_credential_type(provider: str) -> Optional[str]:
     provider_to_credential = {
         'openai': ServiceName.OPENAI_API_KEY,
         'anthropic': ServiceName.ANTHROPIC_API_KEY,
+        'google': ServiceName.GOOGLE_GEMINI_API_KEY,
         'ollama': None,  # Ollama is self-hosted, no API key needed
     }
     

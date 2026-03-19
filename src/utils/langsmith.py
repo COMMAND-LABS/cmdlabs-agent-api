@@ -12,6 +12,9 @@ if not os.getenv("LANGCHAIN_API_KEY") and os.getenv("LANGSMITH_API_KEY"):
 
 def get_langsmith_callbacks(project_name: str) -> list:
     """Return a ``[LangChainTracer]`` list when LangSmith is configured, else ``[]``."""
+    
+    # return []
+
     api_key = os.getenv("LANGSMITH_API_KEY")
     if not api_key:
         return []
