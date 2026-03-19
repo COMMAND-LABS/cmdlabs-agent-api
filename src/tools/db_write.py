@@ -86,7 +86,7 @@ async def create_db_write_tool(
     inject_account_id = tool_config.get('injectAccountId', False)
     inject_chat_session_id = tool_config.get('injectChatSessionId', False)
     
-    # Get chat_session_id from kwargs (passed by completion.py)
+    # Get chat_session_id from kwargs (passed by stream.py)
     chat_session_id = kwargs.get('chat_session_id')
     print(f"[DB WRITE TOOL] 🔍 kwargs received: {list(kwargs.keys())}")
     print(f"[DB WRITE TOOL] 🔍 chat_session_id from kwargs: {chat_session_id}")

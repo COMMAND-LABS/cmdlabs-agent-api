@@ -1,20 +1,18 @@
 """
-Agent completion endpoint - dynamically configures agents based on agent config.
+Agent completion endpoint — non-streaming.
 
-Supports:
-- Streaming responses via Server-Sent Events (SSE)
-- Tool-using agents (RAG, database tools, etc.)
-- Simple chat agents (no tools)
-- PDF document attachments (vision or text extraction mode)
+Runs the agent to completion and returns the full output as a single JSON
+response.  Uses the same agent setup logic as stream.py but calls ainvoke
+instead of astream_events so no SSE is involved.
 """
 from typing import Optional
 import time
 import uuid
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Request, HTTPException, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy.exc import OperationalError
 from src.deps import db_dependency, auth_dependency
-from src.db.database import SessionLocal
 from src.db.models import Agent, ChatSession, ChatMessage, Credential
 from src.db.service_name import ServiceName
 from src.routers.agents.access import load_agent_with_access_check
@@ -37,8 +35,6 @@ from src.routers.agents.helpers import (
     store_ai_message,
     extract_auth_token,
     format_tool_call,
-    sse_event,
-    sse_error,
     get_model_config,
     create_llm,
     get_required_credential_type,
@@ -49,7 +45,7 @@ router = APIRouter()
 
 load_dotenv()
 
-callbacks = get_langsmith_callbacks("dynamic-agent")
+callbacks = get_langsmith_callbacks("dynamic-agent-completion")
 
 
 def _is_transient_ssl_db_error(exc: Exception) -> bool:
@@ -73,43 +69,46 @@ def _db_retry_once(db, operation_name: str, fn):
             db.rollback()
         except Exception:
             pass
-        # Close the session to release the broken connection back to the
-        # pool (QueuePool) or discard it (NullPool).  The next query
-        # auto-acquires a fresh connection through the engine.
         db.close()
-        time.sleep(0.5)  # brief backoff so the pooler can recover
+        time.sleep(0.5)
         return fn()
 
 
-async def generator(
+@router.post("/{agent_id}/completion")
+@limiter.limit("60/minute")
+async def agent_completion(
     agent_id: int,
-    session_id: str,
-    prompt: str,
-    db,
-    auth: dict,
-    request: Request = None,
-    pdf_base64: Optional[str] = None,
-    pdf_filename: Optional[str] = None,
-    pdf_use_vision: bool = False
+    request_body: ChatSessionPrompt,
+    db: db_dependency,
+    auth: auth_dependency,
+    request: Request,
 ):
+    """
+    Run an agent to completion and return the full output as JSON.
+
+    Returns:
+        {
+            "output": "<full AI response>",
+            "tool_calls": [...],   // empty list if no tools were used
+            "session_id": "<uuid>",
+            "agent_id": <int>
+        }
+    """
+    print(f"[AGENT COMPLETION] Received non-streaming request for agent_id: {agent_id}")
+
     try:
         account_id = int(auth['id']) if isinstance(auth['id'], str) else auth['id']
 
-        # Access check: owner OR member of a group granted access to this agent
         agent = _db_retry_once(
-            db,
-            "load agent",
+            db, "load agent",
             lambda: load_agent_with_access_check(db, account_id, agent_id),
         )
 
         if not agent:
-            yield sse_error("Agent not found", "The specified agent was not found or you do not have access.")
-            return
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found or access denied.")
 
         if not agent.config:
-            print(f"[AGENT COMPLETION] Agent {agent_id} has no config")
-            yield sse_error("Invalid agent configuration", "Agent configuration is missing.")
-            return
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent configuration is missing.")
 
         config_data = agent.config.get('data', {})
         config_version = agent.config.get('version', 1)
@@ -117,8 +116,6 @@ async def generator(
         var_context = build_variable_context(agent_name=agent.name)
         system_prompt_resolved = resolve_template_variables(system_prompt_raw, var_context)
         system_prompt = system_prompt_resolved.replace("{", "{{").replace("}", "}}")
-        tool_count = len(config_data.get('knowledgeBases' if config_version == 1 else 'tools', []))
-        print(f"[AGENT COMPLETION] Config v{config_version} - system_prompt length: {len(system_prompt)}, tools: {tool_count}")
 
         model_config = get_model_config(agent.config)
         provider = model_config['provider']
@@ -130,8 +127,7 @@ async def generator(
 
         if required_credential_type:
             credential = _db_retry_once(
-                db,
-                "load provider credential",
+                db, "load provider credential",
                 lambda: db.query(Credential).filter(
                     Credential.account_id == account_id,
                     Credential.service_name == required_credential_type
@@ -139,40 +135,35 @@ async def generator(
             )
 
             if not credential:
-                yield sse_error(
-                    f"{provider.title()} API key required",
-                    f"Please add your {provider.title()} API key in account settings to use {model_name}."
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Please add your {provider.title()} API key in account settings to use {model_name}."
                 )
-                return
 
             try:
                 api_key = get_credential_value(credential, "api_key")
                 credentials[provider] = api_key
             except Exception as e:
-                yield sse_error("Failed to retrieve API key", str(e))
-                return
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to retrieve API key: {e}")
 
         try:
             llm, llm_provider = create_llm(
                 model_config=model_config,
                 credentials=credentials,
-                streaming=True,
+                streaming=False,
                 temperature=0,
             )
             print(f"[AGENT COMPLETION] Initialized {llm_provider} LLM: {model_name}")
         except ValueError as e:
-            yield sse_error("LLM initialization failed", str(e))
-            return
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"LLM initialization failed: {e}")
 
         try:
-            session_uuid = uuid.UUID(session_id)
+            session_uuid = uuid.UUID(request_body.sessionId)
         except ValueError:
-            yield sse_error("Invalid sessionId format", "The sessionId must be a valid UUID format.")
-            return
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="sessionId must be a valid UUID.")
 
         session = _db_retry_once(
-            db,
-            "load chat session",
+            db, "load chat session",
             lambda: db.query(ChatSession).filter(
                 ChatSession.session_id == session_uuid,
                 ChatSession.account_id == account_id
@@ -180,7 +171,7 @@ async def generator(
         )
 
         if not session:
-            print(f"[AGENT COMPLETION] Session {session_id} not found, creating automatically...")
+            print(f"[AGENT COMPLETION] Session {request_body.sessionId} not found, creating automatically...")
             try:
                 session = ChatSession(
                     session_id=session_uuid,
@@ -191,16 +182,12 @@ async def generator(
                 db.add(session)
                 db.commit()
                 db.refresh(session)
-                print(f"[AGENT COMPLETION] Created new session with ID: {session.id}")
             except Exception as e:
                 db.rollback()
-                print(f"[AGENT COMPLETION] Failed to create session: {e}")
-                yield sse_error("Failed to create session", f"Could not create chat session: {str(e)}")
-                return
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not create chat session: {e}")
 
         db_messages = _db_retry_once(
-            db,
-            "load chat messages",
+            db, "load chat messages",
             lambda: db.query(ChatMessage).filter(
                 ChatMessage.chat_session_id == session.id
             ).order_by(ChatMessage.created_at.asc()).all(),
@@ -217,22 +204,14 @@ async def generator(
                 auth_token=auth_token,
                 request=request,
                 chat_session_id=session_uuid,
-                # For shared agents: read-only tools (vector search, DB read)
-                # use the agent owner's credentials so shared users can access
-                # the owner's vector stores and databases.
                 agent_owner_account_id=agent.account_id,
             )
         except CredentialError as e:
-            print(f"[AGENT COMPLETION] Tool configuration error: {e}")
-            yield sse_error("Tool configuration error", str(e))
-            return
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Tool configuration error: {e}")
         except ValueError as e:
-            print(f"[AGENT COMPLETION] Tool configuration error: {e}")
-            yield sse_error("Invalid tool configuration", str(e))
-            return
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid tool configuration: {e}")
 
-        print(f"[AGENT COMPLETION] Created {len(tools)} tools, using {'agent executor' if tools else 'simple chat'} mode")
-
+        # Build prompt template
         if tools:
             prompt_template = ChatPromptTemplate.from_messages([
                 ("system", system_prompt),
@@ -240,22 +219,12 @@ async def generator(
                 ("human", "{input}"),
                 MessagesPlaceholder(variable_name="agent_scratchpad")
             ])
-            tagged_llm = llm.with_config({"tags": ["agent_llm"]})
-            if provider == "openai":
-                agent_langchain = create_openai_tools_agent(tagged_llm, tools, prompt_template)
-            else:
-                # Anthropic and other providers require provider-native tool binding.
-                # create_openai_tools_agent hard-serialises tools as type:"function"
-                # which Anthropic rejects with a 400.
-                agent_langchain = create_tool_calling_agent(tagged_llm, tools, prompt_template)
-            print(f"[AGENT COMPLETION] Agent created with {len(tools)} tools for provider '{provider}'")
         else:
             prompt_template = ChatPromptTemplate.from_messages([
                 ("system", system_prompt),
                 MessagesPlaceholder(variable_name="chat_history"),
                 ("human", "{input}")
             ])
-            agent_langchain = None
 
         memory = ConversationBufferMemory(
             memory_key="chat_history",
@@ -264,9 +233,33 @@ async def generator(
             output_key="output" if tools else None
         )
 
-        user_email = auth.get('email', 'unknown')
+        # Build agent input (text or PDF message)
+        if request_body.pdf:
+            agent_input = build_pdf_message(
+                prompt=request_body.prompt,
+                pdf_base64=request_body.pdf,
+                pdf_filename=request_body.pdfFilename,
+                use_vision=request_body.pdfUseVision or False,
+                max_pages=10 if request_body.pdfUseVision else 50
+            )
+        else:
+            agent_input = request_body.prompt
 
+        # Release the DB connection before the (potentially long) LLM call
+        chat_session_id = session.id
+        db.close()
+        print("[AGENT COMPLETION] DB connection released before LLM call")
+
+        user_email = auth.get('email', 'unknown')
+        tool_calls = []
+
+        # ── Invoke ────────────────────────────────────────────────────
         if tools:
+            if provider == "openai":
+                agent_langchain = create_openai_tools_agent(llm, tools, prompt_template)
+            else:
+                agent_langchain = create_tool_calling_agent(llm, tools, prompt_template)
+
             agent_executor = AgentExecutor(
                 agent=agent_langchain,
                 tools=tools,
@@ -275,230 +268,83 @@ async def generator(
             ).with_config({
                 "run_name": "Agent",
                 "callbacks": callbacks,
-                "metadata": {
-                    "user_email": user_email,
-                    "agent_id": agent_id,
-                    "session_id": str(session_uuid)
-                },
+                "metadata": {"user_email": user_email, "agent_id": agent_id, "session_id": str(session_uuid)},
                 "tags": [f"user:{user_email}", f"agent:{agent_id}"]
             })
-            print(f"[AGENT COMPLETION] Agent executor created with {len(tools)} tools")
-        else:
-            agent_executor = None
 
-        if pdf_base64:
-            agent_input = build_pdf_message(
-                prompt=prompt,
-                pdf_base64=pdf_base64,
-                pdf_filename=pdf_filename,
-                use_vision=pdf_use_vision,
-                max_pages=10 if pdf_use_vision else 50
+            # Store user message before the call
+            _persist_user_message(chat_session_id, request_body.prompt, request_body.pdfFilename)
+
+            result = await agent_executor.ainvoke({"input": agent_input})
+            output = result.get("output", "")
+
+            # Collect tool calls from intermediate steps
+            for step in result.get("intermediate_steps", []):
+                action, observation = step
+                formatted = format_tool_call(
+                    tool_name=action.tool,
+                    tool_input=action.tool_input,
+                    tool_output=str(observation)
+                )
+                if formatted:
+                    tool_calls.append(formatted)
+
+        else:
+            # Simple chat — no tools
+            formatted_input = prompt_template.format_messages(
+                chat_history=message_history.messages,
+                input=agent_input
             )
-            mode = "vision" if pdf_use_vision else "text extraction"
-            print(f"[AGENT COMPLETION] Built PDF message using {mode} mode")
-        else:
-            agent_input = prompt
 
-        # ── Release the DB connection ──────────────────────────────
-        # All reads are done.  Close the session so the underlying
-        # connection returns to the pool (QueuePool) or is discarded
-        # (NullPool) *before* the long-running LLM stream begins.
-        # The streaming helpers use short-lived sessions for writes.
-        chat_session_id = session.id  # grab PK before detaching
-        db.close()
-        print("[AGENT COMPLETION] DB connection released before streaming")
-        # ───────────────────────────────────────────────────────────
+            _persist_user_message(chat_session_id, request_body.prompt, request_body.pdfFilename)
 
-        user_message_stored = False
-        tool_calls = []
+            config = {"callbacks": callbacks} if callbacks else {}
+            result = await llm.ainvoke(formatted_input, config=config)
+            output = result.content
 
-        if agent_executor:
-            async for event_data in _stream_agent_executor(
-                agent_executor=agent_executor,
-                agent_input=agent_input,
-                prompt=prompt,
-                pdf_filename=pdf_filename,
-                chat_session_id=chat_session_id,
-                tool_calls=tool_calls,
-                user_message_stored=user_message_stored
-            ):
-                yield event_data
-        else:
-            async for event_data in _stream_simple_chat(
-                llm=llm,
-                prompt_template=prompt_template,
-                message_history=message_history,
-                agent_input=agent_input,
-                prompt=prompt,
-                pdf_filename=pdf_filename,
-                chat_session_id=chat_session_id,
-                callbacks=callbacks
-            ):
-                yield event_data
+        print(f"[AGENT COMPLETION] Completed — output length: {len(output)} chars")
 
+        # Persist AI response
+        _persist_ai_message(chat_session_id, output, tool_calls or None)
+
+        return JSONResponse(content={
+            "output": output,
+            "tool_calls": tool_calls,
+            "session_id": request_body.sessionId,
+            "agent_id": agent_id,
+        })
+
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"[AGENT COMPLETION] Fatal error in generator: {e}")
+        print(f"[AGENT COMPLETION] Unexpected error: {e}")
         import traceback
         traceback.print_exc()
-        yield sse_error("Internal server error", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Completion failed: {str(e)}"
+        )
 
 
-def _store_user_msg(chat_session_id: int, prompt: str, pdf_filename: Optional[str]):
+def _fresh_db():
+    """Return a new short-lived DB session for a single write."""
+    from src.db.database import SessionLocal
+    return SessionLocal()
+
+
+def _persist_user_message(chat_session_id: int, prompt: str, pdf_filename: Optional[str] = None):
     """Write user message using a short-lived DB session."""
-    db = SessionLocal()
+    db = _fresh_db()
     try:
         store_user_message(db, chat_session_id, prompt, pdf_filename)
     finally:
         db.close()
 
 
-def _store_ai_msg(chat_session_id: int, content: str, tool_calls=None):
+def _persist_ai_message(chat_session_id: int, content: str, tool_calls=None):
     """Write AI message using a short-lived DB session."""
-    db = SessionLocal()
+    db = _fresh_db()
     try:
         store_ai_message(db, chat_session_id, content, tool_calls)
     finally:
         db.close()
-
-
-async def _stream_agent_executor(
-    agent_executor,
-    agent_input,
-    prompt: str,
-    pdf_filename: Optional[str],
-    chat_session_id: int,
-    tool_calls: list,
-    user_message_stored: bool
-):
-    print(f"[AGENT COMPLETION] Streaming events from agent executor")
-    print(f"[AGENT COMPLETION] Prompt: {prompt[:100]}...")
-
-    async for event in agent_executor.astream_events(
-        {"input": agent_input},
-        version="v1",
-    ):
-        kind = event["event"]
-
-        if kind == "on_chain_start":
-            if event["name"] == "Agent":
-                yield sse_event("on_chain_start")
-
-        elif kind == "on_chain_end":
-            if event["name"] == "Agent":
-                content = event['data'].get('output', {}).get('output', '')
-                if content:
-                    _store_ai_msg(chat_session_id, content, tool_calls if tool_calls else None)
-                    yield sse_event("on_chain_end", data=content, tool_calls=tool_calls)
-
-        elif kind == "on_chat_model_start":
-            if not user_message_stored:
-                _store_user_msg(chat_session_id, prompt, pdf_filename)
-                user_message_stored = True
-            yield sse_event("on_chat_model_start", tool_calls=tool_calls)
-
-        elif kind == "on_chat_model_stream":
-            content = event["data"]["chunk"].content
-            if content:
-                yield sse_event("on_chat_model_stream", data=content)
-
-        elif kind == "on_tool_start":
-            yield sse_event("on_tool_start", data=f"Starting tool: {event['name']} with inputs: {event['data'].get('input')}")
-
-        elif kind == "on_tool_end":
-            formatted = format_tool_call(
-                tool_name=event['name'],
-                tool_input=event['data'].get('input', {}),
-                tool_output=event['data'].get('output', {})
-            )
-            if formatted:
-                tool_calls.append(formatted)
-            yield sse_event("on_tool_end")
-
-
-async def _stream_simple_chat(
-    llm,
-    prompt_template,
-    message_history,
-    agent_input,
-    prompt: str,
-    pdf_filename: Optional[str],
-    chat_session_id: int,
-    callbacks: list
-):
-    print(f"[AGENT COMPLETION] Using simple chat mode (no tools)")
-    _store_user_msg(chat_session_id, prompt, pdf_filename)
-    yield sse_event("on_chat_model_start")
-    full_response = ""
-    chunk_count = 0
-
-    try:
-        if isinstance(agent_input, str):
-            formatted_input = prompt_template.format_messages(
-                chat_history=message_history.messages,
-                input=agent_input
-            )
-        else:
-            messages = [
-                ("system", prompt_template.messages[0].prompt.template),
-            ]
-            for msg in message_history.messages:
-                messages.append(msg)
-            messages.append(agent_input)
-            formatted_input = messages
-
-        config = {"callbacks": callbacks} if callbacks else {}
-
-        async for event in llm.astream_events(
-            formatted_input,
-            version="v1",
-            config=config
-        ):
-            if event["event"] == "on_chat_model_stream":
-                content = event["data"]["chunk"].content
-                if content:
-                    chunk_count += 1
-                    full_response += content
-                    yield sse_event("on_chat_model_stream", data=content)
-
-        print(f"[AGENT COMPLETION] Finished - {chunk_count} chunks, {len(full_response)} chars")
-
-    except Exception as e:
-        print(f"[AGENT COMPLETION] Error during streaming: {e}")
-        import traceback
-        traceback.print_exc()
-        yield sse_error("Streaming error", str(e))
-        return
-
-    if full_response:
-        _store_ai_msg(chat_session_id, full_response)
-    yield sse_event("on_chain_end", data=full_response)
-
-
-@router.post("/{agent_id}/completion")
-@limiter.limit("200/minute")
-async def agent_completion(
-    agent_id: int,
-    request_body: ChatSessionPrompt,
-    db: db_dependency,
-    auth: auth_dependency,
-    request: Request
-):
-    """
-    Stream completion from a dynamically configured agent.
-    Same contract as main AI API completion endpoint.
-    """
-    print(f"[AGENT COMPLETION] Received request for agent_id: {agent_id}")
-    return StreamingResponse(
-        generator(
-            agent_id=agent_id,
-            session_id=request_body.sessionId,
-            prompt=request_body.prompt,
-            db=db,
-            auth=auth,
-            request=request,
-            pdf_base64=request_body.pdf,
-            pdf_filename=request_body.pdfFilename,
-            pdf_use_vision=request_body.pdfUseVision or False
-        ),
-        media_type='text/event-stream'
-    )
