@@ -1,36 +1,42 @@
 """
-Send Plain-Text Email Tool (AWS SES)
+Send Plain-Text Email Tool — Human-in-the-Loop (HITL) variant.
 
-Allows agents to send plain-text emails through an account-owned AWS SES
-credential.  The credential must contain the following decrypted fields:
-    - aws_access_key_id
-    - aws_secret_access_key
-    - aws_region          (e.g. "us-east-1")
-    - from_email          (a verified SES sender identity)
+When the agent calls this tool, execution is NOT immediate.  Instead the tool:
+  1. Writes a PendingToolApproval record to the shared database.
+  2. Returns a HITL sentinel JSON string so the streaming layer can emit a
+     ``tool_approval_required`` SSE event to the client.
+  3. Returns a human-readable "pending" message to the LLM so the conversation
+     can continue naturally while the human reviews the request.
+
+The actual email is sent only after the user clicks **Approve** in the UI,
+which calls the approval endpoint in kalygo3-ai-api.
 """
-from typing import Dict, Any, Optional
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, Optional
+
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from src.db.models import Credential
+from src.db.models import Credential, PendingToolApproval
 from src.routers.credentials.encryption import decrypt_credential_data
+
+# Sentinel key detected by _stream_agent_executor in stream.py
+HITL_SENTINEL_KEY = "__approval_required__"
+
+# How long the user has to act before the approval expires
+APPROVAL_TTL_MINUTES = 30
 
 
 class CredentialError(Exception):
-    """Raised when there is an issue with the AWS SES credential."""
-    pass
+    """Raised when the stored AWS SES credential is invalid."""
 
 
-def get_ses_config(credential_id: int, account_id: int, db: Session) -> Dict[str, str]:
+def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> None:
     """
-    Retrieve and decrypt the AWS SES configuration from a stored credential.
-
-    Returns a dict with keys: aws_access_key_id, aws_secret_access_key,
-    aws_region, from_email.
-
-    Raises:
-        CredentialError: If credential is missing, wrong type, or missing keys.
+    Validate that the credential exists and contains the required AWS SES fields.
+    Called at tool-build time so bad configs surface before the first invocation.
     """
     credential = db.query(Credential).filter(
         Credential.id == credential_id,
@@ -39,8 +45,7 @@ def get_ses_config(credential_id: int, account_id: int, db: Session) -> Dict[str
 
     if not credential:
         raise CredentialError(
-            f"Credential with ID {credential_id} not found. "
-            "It may have been deleted or you do not have access to it."
+            f"Credential with ID {credential_id} not found or not accessible."
         )
 
     try:
@@ -56,8 +61,6 @@ def get_ses_config(credential_id: int, account_id: int, db: Session) -> Dict[str
             f"Available keys: {list(data.keys())}"
         )
 
-    return {k: data[k] for k in required}
-
 
 async def create_send_email_tool(
     tool_config: Dict[str, Any],
@@ -67,34 +70,25 @@ async def create_send_email_tool(
     **kwargs,
 ) -> StructuredTool:
     """
-    Create a send-plain-text-email tool backed by AWS SES.
+    Create the HITL-gated send-plain-text-email tool.
 
-    Args:
-        tool_config: Tool configuration including:
-            - credentialId: ID of stored AWS SES credential
-            - name:         Optional custom tool name (default: send_txt_email)
-            - description:  Guidance for the LLM on when/how to use this tool
-        account_id: Account ID for credential ownership check
-        db:          Database session
-        auth_token:  Unused (present for interface parity)
-        **kwargs:    agent_owner_account_id forwarded for shared-agent support
+    At tool-build time the credential is validated (to surface mis-configuration
+    early).  At invocation time the tool inserts a PendingToolApproval record
+    and returns a HITL sentinel string — it does NOT send any email directly.
 
-    Returns:
-        StructuredTool that sends plain-text emails via AWS SES.
-
-    Example tool_config:
-        {
-            "type": "sendTxtEmail",
-            "credentialId": 12,
-            "name": "send_followup_email",
-            "description": "Send a plain-text follow-up email to a prospect."
-        }
+    Required tool_config keys:
+        - credentialId: int — ID of the stored AWS SES credential
+        - name:         str (optional) — custom tool name
+        - description:  str (optional) — LLM guidance
     """
     credential_id = tool_config.get("credentialId")
     tool_name = (tool_config.get("name") or "send_txt_email").strip()
     description = (
         tool_config.get("description")
-        or "Send a plain-text email to a recipient using AWS SES."
+        or (
+            "Send a plain-text email to a recipient. "
+            "The email will be reviewed by a human before it is delivered."
+        )
     )
 
     if not credential_id:
@@ -102,75 +96,91 @@ async def create_send_email_tool(
             "Missing required field 'credentialId' in sendTxtEmail tool configuration"
         )
 
-    # Use the agent owner's credentials so the tool works for shared agents
-    # (same policy as dbTableRead — the owner's SES identity is used).
+    # Use the agent owner's account for shared-agent support
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
 
-    ses_config = get_ses_config(credential_id, credential_account_id, db)
+    # Validate the credential early — fail fast
+    _verify_ses_credential(credential_id, credential_account_id, db)
+
+    # Pull agent / chat_session context for the approval record (may be None).
+    # chat_session_id_pk is the integer PK; chat_session_id is the UUID string.
+    agent_id: Optional[int] = kwargs.get("agent_id")
+    chat_session_id: Optional[int] = kwargs.get("chat_session_id_pk")
+
+    # DB session factory so the closure can open short-lived sessions
+    from src.db.database import SessionLocal
 
     print(
-        f"[SEND EMAIL TOOL] Tool '{tool_name}' ready "
-        f"(from: {ses_config['from_email']}, region: {ses_config['aws_region']})"
+        f"[SEND EMAIL TOOL] HITL tool '{tool_name}' ready — "
+        f"approvals will be stored in pending_tool_approvals "
+        f"(credential_id={credential_id}, account_id={credential_account_id})"
     )
 
-    # Define the send implementation — created once at tool-build time so the
-    # SES client is not recreated on every invocation.
-    async def send_email_impl(to_email: str, subject: str, body: str) -> Dict[str, Any]:
-        """Send a plain-text email via AWS SES."""
+    async def send_email_impl(to_email: str, subject: str, body: str) -> str:
+        """Queue an email for human approval before sending."""
         print(f"\n{'='*60}")
-        print(f"[SEND EMAIL TOOL] 🚀 TOOL INVOKED: {tool_name}")
-        print(f"[SEND EMAIL TOOL] 📧 To: {to_email}")
-        print(f"[SEND EMAIL TOOL] 📋 Subject: {subject}")
-        print(f"[SEND EMAIL TOOL] 📝 Body length: {len(body)} chars")
+        print(f"[SEND EMAIL TOOL] 📬 HITL: queuing email for approval")
+        print(f"[SEND EMAIL TOOL]   To      : {to_email}")
+        print(f"[SEND EMAIL TOOL]   Subject : {subject}")
+        print(f"[SEND EMAIL TOOL]   Body    : {len(body)} chars")
         print(f"{'='*60}\n")
 
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
+
+        approval_db: Session = SessionLocal()
         try:
-            import boto3
-
-            ses_client = boto3.client(
-                "ses",
-                region_name=ses_config["aws_region"],
-                aws_access_key_id=ses_config["aws_access_key_id"],
-                aws_secret_access_key=ses_config["aws_secret_access_key"],
-            )
-
-            response = ses_client.send_email(
-                Source=ses_config["from_email"],
-                Destination={"ToAddresses": [to_email]},
-                Message={
-                    "Subject": {"Data": subject, "Charset": "UTF-8"},
-                    "Body": {"Text": {"Data": body, "Charset": "UTF-8"}},
+            approval = PendingToolApproval(
+                account_id=credential_account_id,
+                agent_id=agent_id,
+                chat_session_id=chat_session_id,
+                tool_type="sendTxtEmail",
+                status="pending",
+                payload={
+                    "credential_id": credential_id,
+                    "to_email": to_email,
+                    "subject": subject,
+                    "body": body,
                 },
+                expires_at=expires_at,
             )
-
-            message_id = response.get("MessageId", "unknown")
-            print(f"[SEND EMAIL TOOL] ✅ Email sent — MessageId: {message_id}")
-            print(f"{'='*60}\n")
-
-            return {
-                "success": True,
-                "message_id": message_id,
-                "to": to_email,
-                "subject": subject,
-            }
-
+            approval_db.add(approval)
+            approval_db.commit()
+            approval_db.refresh(approval)
+            approval_id = approval.id
+            print(f"[SEND EMAIL TOOL] ✅ PendingToolApproval created — id={approval_id}")
         except Exception as e:
-            print(f"\n[SEND EMAIL TOOL] ❌ FAILED: {e}")
+            approval_db.rollback()
+            print(f"[SEND EMAIL TOOL] ❌ Failed to create approval record: {e}")
             import traceback
             traceback.print_exc()
-            print(f"{'='*60}\n")
-            return {"success": False, "error": str(e)}
+            return json.dumps({
+                "success": False,
+                "error": f"Failed to queue email for approval: {e}",
+            })
+        finally:
+            approval_db.close()
+
+        # Return the HITL sentinel so stream.py can emit the SSE event
+        return json.dumps({
+            HITL_SENTINEL_KEY: True,
+            "approval_id": approval_id,
+            "tool_type": "sendTxtEmail",
+            "preview": {
+                "to_email": to_email,
+                "subject": subject,
+                "body": body,
+            },
+            # Human-readable message for the LLM's context window
+            "message": (
+                f"Email to {to_email} has been queued for human review. "
+                "It will be sent only after the user approves it."
+            ),
+        })
 
     class SendEmailInput(BaseModel):
-        to_email: str = Field(
-            description="Recipient email address (e.g. user@example.com)"
-        )
-        subject: str = Field(
-            description="Email subject line"
-        )
-        body: str = Field(
-            description="Plain-text email body"
-        )
+        to_email: str = Field(description="Recipient email address (e.g. user@example.com)")
+        subject: str = Field(description="Email subject line")
+        body: str = Field(description="Plain-text email body")
 
     return StructuredTool(
         func=send_email_impl,

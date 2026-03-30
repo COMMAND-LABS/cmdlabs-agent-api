@@ -401,3 +401,28 @@ class Prompt(Base):
     
     def __repr__(self):
         return f'<Prompt {self.id}: {self.name}>'
+
+
+class PendingToolApproval(Base):
+    """
+    Written by HITL-gated tools (e.g. send_email) when they want to queue an
+    action for human review.  The approval REST endpoints in kalygo3-ai-api
+    own the full lifecycle; the completion-api only ever *inserts* rows here.
+    """
+    __tablename__ = 'pending_tool_approvals'
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)
+    chat_session_id = Column(Integer, ForeignKey('chat_sessions.id', ondelete='SET NULL'), nullable=True)
+
+    tool_type = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, default='pending')
+    payload = Column(JSON, nullable=False)
+
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f'<PendingToolApproval {self.id}: {self.tool_type} [{self.status}]>'

@@ -65,3 +65,6 @@ class EventType:
     TOOL_START = "on_tool_start"
     TOOL_END = "on_tool_end"
     ERROR = "error"
+    # Emitted when a HITL-gated tool queues an action for human review.
+    # Payload: {approval_id, tool_type, preview: {to_email, subject, body}}
+    TOOL_APPROVAL_REQUIRED = "tool_approval_required"

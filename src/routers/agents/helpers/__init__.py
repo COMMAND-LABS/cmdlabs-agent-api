@@ -10,7 +10,7 @@ from .message_history import (
 )
 from .auth import extract_auth_token
 from .tool_calls import format_tool_call
-from .sse_events import sse_event, sse_error
+from .sse_events import sse_event, sse_error, EventType
 from .llm_factory import (
     get_model_config,
     create_llm,
@@ -30,6 +30,7 @@ __all__ = [
     # SSE events
     "sse_event",
     "sse_error",
+    "EventType",
     # LLM factory
     "get_model_config",
     "create_llm",

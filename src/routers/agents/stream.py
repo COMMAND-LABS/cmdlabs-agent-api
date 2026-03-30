@@ -8,6 +8,7 @@ Supports:
 - PDF document attachments (vision or text extraction mode)
 """
 from typing import Optional
+import json
 import time
 import uuid
 from fastapi import APIRouter, Request
@@ -39,6 +40,7 @@ from src.routers.agents.helpers import (
     format_tool_call,
     sse_event,
     sse_error,
+    EventType,
     get_model_config,
     create_llm,
     get_required_credential_type,
@@ -217,6 +219,9 @@ async def generator(
                 auth_token=auth_token,
                 request=request,
                 chat_session_id=session_uuid,
+                # Integer PKs used by HITL tools to link approval records
+                agent_id=agent_id,
+                chat_session_id_pk=session.id,
                 # For shared agents: read-only tools (vector search, DB read)
                 # use the agent owner's credentials so shared users can access
                 # the owner's vector stores and databases.
@@ -405,13 +410,37 @@ async def _stream_agent_executor(
             yield sse_event("on_tool_start", data=f"Starting tool: {event['name']} with inputs: {event['data'].get('input')}")
 
         elif kind == "on_tool_end":
-            formatted = format_tool_call(
-                tool_name=event['name'],
-                tool_input=event['data'].get('input', {}),
-                tool_output=event['data'].get('output', {})
-            )
-            if formatted:
-                tool_calls.append(formatted)
+            tool_output = event['data'].get('output', {})
+
+            # Detect HITL sentinel — the send_email tool returns a JSON string
+            # with __approval_required__: true when it queues an approval.
+            hitl_data = None
+            if isinstance(tool_output, str):
+                try:
+                    parsed = json.loads(tool_output)
+                    if parsed.get("__approval_required__"):
+                        hitl_data = parsed
+                except (json.JSONDecodeError, AttributeError, TypeError):
+                    pass
+
+            if hitl_data:
+                yield sse_event(
+                    EventType.TOOL_APPROVAL_REQUIRED,
+                    data={
+                        "approval_id": hitl_data.get("approval_id"),
+                        "tool_type": hitl_data.get("tool_type"),
+                        "preview": hitl_data.get("preview", {}),
+                    },
+                )
+            else:
+                formatted = format_tool_call(
+                    tool_name=event['name'],
+                    tool_input=event['data'].get('input', {}),
+                    tool_output=tool_output,
+                )
+                if formatted:
+                    tool_calls.append(formatted)
+
             yield sse_event("on_tool_end")
 
 
