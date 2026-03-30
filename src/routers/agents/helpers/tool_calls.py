@@ -39,6 +39,8 @@ def format_tool_call(
         return _format_db_table_read(tool_name, tool_input, tool_output)
     elif tool_name.startswith("insert_") or tool_name.startswith("create_"):
         return _format_db_table_write(tool_name, tool_input, tool_output)
+    elif _is_send_email_tool(tool_name, tool_output):
+        return _format_send_txt_email(tool_name, tool_input, tool_output)
     else:
         # Generic tool format for unknown tool types
         return _format_generic_tool(tool_name, tool_input, tool_output)
@@ -143,6 +145,38 @@ def _format_db_table_write(
             "message": tool_output.get('message', ''),
             "error": tool_output.get('error')
         }
+    }
+
+
+def _is_send_email_tool(tool_name: str, tool_output: Dict[str, Any]) -> bool:
+    """Detect send-email tools by name convention or output shape."""
+    if "email" in tool_name.lower():
+        return True
+    # Fallback: output has the SES success/message_id shape
+    return "message_id" in tool_output or (
+        "success" in tool_output and "to" in tool_output and "subject" in tool_output
+    )
+
+
+def _format_send_txt_email(
+    tool_name: str,
+    tool_input: Dict[str, Any],
+    tool_output: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Format a send-plain-text-email tool call."""
+    return {
+        "toolType": "sendTxtEmail",
+        "toolName": tool_name,
+        "input": {
+            "to": tool_input.get("to_email", tool_input.get("to", "")),
+            "subject": tool_input.get("subject", ""),
+            "body": tool_input.get("body", ""),
+        },
+        "output": {
+            "success": tool_output.get("success", False),
+            "messageId": tool_output.get("message_id", tool_output.get("messageId")),
+            "error": tool_output.get("error"),
+        },
     }
 
 
