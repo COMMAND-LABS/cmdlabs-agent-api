@@ -9,6 +9,7 @@ from .vector_search import create_vector_search_tool
 from .vector_search_with_reranking import create_vector_search_with_reranking_tool
 from .db_read import create_db_read_tool
 from .db_write import create_db_write_tool
+from .send_email import create_send_email_tool
 
 
 def register_all_tools():
@@ -16,17 +17,20 @@ def register_all_tools():
     # Register vector search tools
     register_tool_type("vectorSearch", create_vector_search_tool)
     register_tool_type("vectorSearchWithReranking", create_vector_search_with_reranking_tool)
-    
+
     # Register database tools
     register_tool_type("dbTableRead", create_db_read_tool)
     register_tool_type("dbTableWrite", create_db_write_tool)
-    
+
+    # Register email tools
+    register_tool_type("sendTxtEmail", create_send_email_tool)
+
     # Future tool types will be registered here:
     # register_tool_type("webSearch", create_web_search_tool)
     # register_tool_type("calculator", create_calculator_tool)
     # register_tool_type("apiCall", create_api_call_tool)
     # etc.
-    
+
     print("[TOOL REGISTRY] All tool types registered")
 
 

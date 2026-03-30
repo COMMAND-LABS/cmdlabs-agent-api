@@ -96,6 +96,9 @@
         },
         {
           "$ref": "#/$defs/dbTableWriteTool"
+        },
+        {
+          "$ref": "#/$defs/sendTxtEmailTool"
         }
       ]
     },
@@ -189,6 +192,21 @@
         },
         "injectAccountId": { "type": "boolean", "default": false },
         "injectChatSessionId": { "type": "boolean", "default": false }
+      }
+    },
+    "sendTxtEmailTool": {
+      "type": "object",
+      "description": "Plain-text email sending tool backed by AWS SES.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "credentialId"
+      ],
+      "properties": {
+        "type": { "type": "string", "const": "sendTxtEmail" },
+        "credentialId": { "type": "integer", "minimum": 1, "description": "ID of stored AWS SES credential (service_name = AWS_SES)." },
+        "name": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[a-z_][a-z0-9_]*$", "description": "Custom tool name seen by the LLM. Defaults to send_txt_email." },
+        "description": { "type": "string", "minLength": 1, "description": "Guidance for the LLM on when and how to use this tool." }
       }
     }
   }
