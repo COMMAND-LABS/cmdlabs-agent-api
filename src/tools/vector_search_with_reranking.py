@@ -350,7 +350,7 @@ async def create_vector_search_with_reranking_tool(
     return StructuredTool(
         func=retrieval_with_reranking_impl,
         coroutine=retrieval_with_reranking_impl,
-        name=f"search_rerank_{namespace}",
+        name=tool_config.get("name", "vector_search_with_reranking"),
         description=description,
         args_schema=SearchWithRerankQuery
     )

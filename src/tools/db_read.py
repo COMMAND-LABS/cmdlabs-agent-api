@@ -144,7 +144,7 @@ async def create_db_read_tool(
     """
     credential_id = tool_config.get('credentialId')
     table_name = tool_config.get('table', '').strip()
-    tool_name = tool_config.get('name', f"query_{table_name}").strip()
+    tool_name = tool_config.get('name', 'db_table_read').strip()
     description = tool_config.get('description', f"Query data from {table_name} table")
     allowed_columns = tool_config.get('columns', [])
     max_limit = tool_config.get('maxLimit', 100)

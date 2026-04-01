@@ -79,7 +79,7 @@ async def create_db_write_tool(
     """
     credential_id = tool_config.get('credentialId')
     table_name = tool_config.get('table', '').strip()
-    tool_name = tool_config.get('name', f"insert_{table_name}").strip()
+    tool_name = tool_config.get('name', 'db_table_write').strip()
     description = tool_config.get('description', f"Insert a record into {table_name} table")
     allowed_columns = tool_config.get('columns', [])
     required_columns = tool_config.get('requiredColumns', [])

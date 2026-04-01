@@ -230,7 +230,7 @@ async def create_vector_search_tool(
     return StructuredTool(
         func=retrieval_impl,
         coroutine=retrieval_impl,
-        name=f"search_{namespace}",
+        name=tool_config.get("name", "vector_search"),
         description=description,
         args_schema=SearchQuery
     )
