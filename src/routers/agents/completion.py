@@ -111,7 +111,6 @@ async def agent_completion(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent configuration is missing.")
 
         config_data = agent.config.get('data', {})
-        config_version = agent.config.get('version', 1)
         system_prompt_raw = config_data.get('systemPrompt', 'You are a helpful assistant.')
         var_context = build_variable_context(agent_name=agent.name)
         system_prompt_resolved = resolve_template_variables(system_prompt_raw, var_context)

@@ -1,8 +1,7 @@
 """
 Tool Factory
 
-Creates tool instances from agent config definitions.
-Supports v1 (knowledgeBases) and v2+ (tools) config formats.
+Creates tool instances from agent config (v4) definitions.
 """
 from typing import Dict, Any, List, Optional
 from langchain_core.tools import StructuredTool
@@ -79,47 +78,17 @@ async def create_tools_from_agent_config(
     **kwargs
 ) -> List[StructuredTool]:
     """
-    Create all tools from an agent configuration.
-    
-    Supports v1 (knowledgeBases) and v2+ (tools) config formats.
-    
+    Create all tools from a v4 agent configuration.
+
     Args:
         agent_config: Full agent config with 'version' and 'data'
         account_id: Account ID for fetching credentials
         db: Database session
         auth_token: Authentication token (JWT or API key)
         **kwargs: Additional context passed to tool builders
-        
+
     Returns:
         List of StructuredTool instances
-        
-    Example:
-        # v2 config
-        agent_config = {
-            "schema": "agent_config",
-            "version": 2,
-            "data": {
-                "systemPrompt": "...",
-                "tools": [
-                    {"type": "vectorSearch", "provider": "pinecone", ...},
-                    {"type": "webSearch", "provider": "serper", ...}
-                ]
-            }
-        }
-        
-        # v1 config (backwards compatible)
-        agent_config = {
-            "schema": "agent_config",
-            "version": 1,
-            "data": {
-                "systemPrompt": "...",
-                "knowledgeBases": [
-                    {"provider": "pinecone", "index": "...", ...}
-                ]
-            }
-        }
-        
-        tools = await create_tools_from_agent_config(agent_config, account_id, db, auth_token)
     """
     tools = []
     version, version_label, tool_configs = extract_tool_configs_for_agent(agent_config)

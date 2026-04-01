@@ -11,40 +11,24 @@ from typing import Dict, Any, Optional, Tuple
 from langchain_core.language_models.chat_models import BaseChatModel
 
 
-# Default model configuration (used for v1 and v2 configs)
 DEFAULT_MODEL_CONFIG = {
     "provider": "openai",
-    "model": "gpt-4o-mini"
-    # "model": "gpt-5.4"
+    "model": "gpt-4o-mini",
 }
 
 
 def get_model_config(agent_config: Dict[str, Any]) -> Dict[str, str]:
     """
-    Extract model configuration from agent config.
-    
-    Supports v1, v2, and v3 configs:
-    - v1/v2: Returns default (OpenAI gpt-4o-mini)
-    - v3: Returns the configured model
-    
-    Args:
-        agent_config: The agent's config dict
-        
-    Returns:
-        Dict with 'provider' and 'model' keys
+    Extract model configuration from a v4 agent config.
+    Returns the configured model if present, otherwise the default.
     """
-    version = agent_config.get('version', 1)
-    
-    if version >= 3:
-        config_data = agent_config.get('data', {})
-        model_config = config_data.get('model')
-        if model_config:
-            return {
-                "provider": model_config.get('provider', 'openai'),
-                "model": model_config.get('model', 'gpt-4o-mini')
-            }
-    
-    # Default for v1/v2 or v3 without model config
+    config_data = agent_config.get('data', {})
+    model_config = config_data.get('model')
+    if model_config:
+        return {
+            "provider": model_config.get('provider', 'openai'),
+            "model": model_config.get('model', 'gpt-4o-mini'),
+        }
     return DEFAULT_MODEL_CONFIG.copy()
 
 

@@ -112,42 +112,6 @@ async def example_3_create_tools_from_v2_config(account_id: int, db, auth_token:
     print()
 
 
-async def example_4_create_tools_from_v1_config(account_id: int, db, auth_token: str):
-    """Example 4: Create tools from v1 agent config (backwards compatible)."""
-    print("=== Example 4: Create Tools from v1 Config (Backwards Compatible) ===")
-    
-    # v1 config with knowledgeBases (legacy format)
-    agent_config = {
-        "schema": "agent_config",
-        "version": 1,
-        "data": {
-            "systemPrompt": "You are a helpful assistant.",
-            "knowledgeBases": [
-                {
-                    "provider": "pinecone",
-                    "index": "legacy-docs",
-                    "namespace": "user-manual",
-                    "description": "Legacy user manual"
-                }
-            ]
-        }
-    }
-    
-    # Create tools - automatically converts v1 to v2 format
-    tools = await create_tools_from_agent_config(
-        agent_config=agent_config,
-        account_id=account_id,
-        db=db,
-        auth_token=auth_token
-    )
-    
-    print(f"✓ Created {len(tools)} tools from v1 config:")
-    for tool in tools:
-        print(f"  - {tool.name}: {tool.description}")
-    
-    print("ℹ️  v1 knowledgeBases automatically converted to v2 vectorSearch tools")
-    print()
-
 
 async def example_5_error_handling():
     """Example 5: Error handling."""
@@ -435,7 +399,6 @@ async def run_all_examples(account_id: int = None, db = None, auth_token: str = 
     if account_id and db and auth_token:
         await example_2_create_single_tool(account_id, db, auth_token)
         await example_3_create_tools_from_v2_config(account_id, db, auth_token)
-        await example_4_create_tools_from_v1_config(account_id, db, auth_token)
     else:
         print("ℹ️  Skipping examples 2-4 (require account_id, db, auth_token)")
         print()

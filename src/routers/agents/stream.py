@@ -114,13 +114,12 @@ async def generator(
             return
 
         config_data = agent.config.get('data', {})
-        config_version = agent.config.get('version', 1)
         system_prompt_raw = config_data.get('systemPrompt', 'You are a helpful assistant.')
         var_context = build_variable_context(agent_name=agent.name)
         system_prompt_resolved = resolve_template_variables(system_prompt_raw, var_context)
         system_prompt = system_prompt_resolved.replace("{", "{{").replace("}", "}}")
-        tool_count = len(config_data.get('knowledgeBases' if config_version == 1 else 'tools', []))
-        print(f"[AGENT COMPLETION] Config v{config_version} - system_prompt length: {len(system_prompt)}, tools: {tool_count}")
+        tool_count = len(config_data.get('tools', []))
+        print(f"[AGENT COMPLETION] system_prompt length: {len(system_prompt)}, tools: {tool_count}")
 
         model_config = get_model_config(agent.config)
         provider = model_config['provider']
