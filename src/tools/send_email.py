@@ -78,11 +78,9 @@ async def create_send_email_tool(
 
     Required tool_config keys:
         - credentialId: int — ID of the stored AWS SES credential
-        - name:         str (optional) — custom tool name
         - description:  str (optional) — LLM guidance
     """
     credential_id = tool_config.get("credentialId")
-    tool_name = (tool_config.get("name") or "send_txt_email").strip()
     description = (
         tool_config.get("description")
         or (
@@ -111,7 +109,7 @@ async def create_send_email_tool(
     from src.db.database import SessionLocal
 
     print(
-        f"[SEND EMAIL TOOL] HITL tool '{tool_name}' ready — "
+        f"[SEND EMAIL TOOL] HITL tool 'send_txt_email_with_ses' ready — "
         f"approvals will be stored in pending_tool_approvals "
         f"(credential_id={credential_id}, account_id={credential_account_id})"
     )
@@ -185,7 +183,7 @@ async def create_send_email_tool(
     return StructuredTool(
         func=send_email_impl,
         coroutine=send_email_impl,
-        name=tool_name,
+        name="send_txt_email_with_ses",
         description=description,
         args_schema=SendEmailInput,
     )

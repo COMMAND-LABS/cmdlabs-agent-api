@@ -30,20 +30,16 @@ def format_tool_call(
         print(f"[TOOL CALLS] Warning: tool_output is not a dict (type: {type(tool_output)})")
         return None
     
-    # Determine tool type and format accordingly
-    if tool_name.startswith("search_rerank_"):
-        return _format_vector_search_rerank(tool_name, tool_input, tool_output)
-    elif tool_name.startswith("search_"):
-        return _format_vector_search(tool_name, tool_input, tool_output)
-    elif tool_name.startswith("query_"):
-        return _format_db_table_read(tool_name, tool_input, tool_output)
-    elif tool_name.startswith("insert_") or tool_name.startswith("create_"):
-        return _format_db_table_write(tool_name, tool_input, tool_output)
-    elif _is_send_email_tool(tool_name, tool_output):
-        return _format_send_txt_email(tool_name, tool_input, tool_output)
-    else:
-        # Generic tool format for unknown tool types
-        return _format_generic_tool(tool_name, tool_input, tool_output)
+    # Dispatch by fixed tool name
+    _FORMATTERS = {
+        "vector_search": _format_vector_search,
+        "vector_search_with_reranking": _format_vector_search_rerank,
+        "db_table_read": _format_db_table_read,
+        "db_table_write": _format_db_table_write,
+        "send_txt_email_with_ses": _format_send_txt_email,
+    }
+    formatter = _FORMATTERS.get(tool_name, _format_generic_tool)
+    return formatter(tool_name, tool_input, tool_output)
 
 
 def _format_vector_search(
@@ -146,16 +142,6 @@ def _format_db_table_write(
             "error": tool_output.get('error')
         }
     }
-
-
-def _is_send_email_tool(tool_name: str, tool_output: Dict[str, Any]) -> bool:
-    """Detect send-email tools by name convention or output shape."""
-    if "email" in tool_name.lower():
-        return True
-    # Fallback: output has the SES success/message_id shape
-    return "message_id" in tool_output or (
-        "success" in tool_output and "to" in tool_output and "subject" in tool_output
-    )
 
 
 def _format_send_txt_email(
