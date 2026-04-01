@@ -101,7 +101,10 @@
           "$ref": "#/$defs/sendTxtEmailTool"
         },
         {
-          "$ref": "#/$defs/sendTxtEmailWithGoogleTool"
+          "$ref": "#/$defs/sendTxtEmailWithGoogleOAuthTool"
+        },
+        {
+          "$ref": "#/$defs/sendTxtEmailWithGoogleSmtpTool"
         }
       ]
     },
@@ -209,17 +212,31 @@
         "description": { "type": "string", "minLength": 1, "description": "Guidance for the LLM on when and how to use this tool." }
       }
     },
-    "sendTxtEmailWithGoogleTool": {
+    "sendTxtEmailWithGoogleOAuthTool": {
       "type": "object",
-      "description": "Plain-text email sending tool backed by Google Gmail API.",
+      "description": "Plain-text email sending tool via Google Gmail API using OAuth.",
       "additionalProperties": false,
       "required": [
         "type",
         "credentialId"
       ],
       "properties": {
-        "type": { "type": "string", "const": "sendTxtEmailWithGoogle" },
+        "type": { "type": "string", "const": "sendTxtEmailWithGoogleOAuth" },
         "credentialId": { "type": "integer", "minimum": 1, "description": "ID of stored Google OAuth credential (service_name = GOOGLE_OAUTH). Must contain client_id, client_secret, refresh_token, and from_email." },
+        "description": { "type": "string", "minLength": 1, "description": "Guidance for the LLM on when and how to use this tool." }
+      }
+    },
+    "sendTxtEmailWithGoogleSmtpTool": {
+      "type": "object",
+      "description": "Plain-text email sending tool via Gmail SMTP using an App Password.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "credentialId"
+      ],
+      "properties": {
+        "type": { "type": "string", "const": "sendTxtEmailWithGoogleSmtp" },
+        "credentialId": { "type": "integer", "minimum": 1, "description": "ID of stored Gmail SMTP credential (service_name = GOOGLE_GMAIL_SMTP). Must contain from_email and app_password." },
         "description": { "type": "string", "minLength": 1, "description": "Guidance for the LLM on when and how to use this tool." }
       }
     }

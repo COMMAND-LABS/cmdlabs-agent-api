@@ -1,5 +1,6 @@
 """
-Send Plain-Text Email Tool via Gmail SMTP (App Password) — Human-in-the-Loop (HITL) variant.
+Send Plain-Text Email Tool via Google Gmail API (OAuth) — tool type: sendTxtEmailWithGoogleOAuth.
+Human-in-the-Loop (HITL) variant.
 
 When the agent calls this tool, execution is NOT immediate.  Instead the tool:
   1. Writes a PendingToolApproval record to the shared database.
@@ -11,9 +12,11 @@ When the agent calls this tool, execution is NOT immediate.  Instead the tool:
 The actual email is sent only after the user clicks **Approve** in the UI,
 which calls the approval endpoint in kalygo3-ai-api.
 
-Required credential fields (service_name = GOOGLE_GMAIL_SMTP):
+Required credential fields (service_name = GOOGLE_OAUTH):
+  - client_id
+  - client_secret
+  - refresh_token
   - from_email   (the Gmail address to send from)
-  - app_password (the Gmail App Password — NOT the account password)
 """
 import json
 from datetime import datetime, timezone, timedelta
@@ -26,22 +29,19 @@ from sqlalchemy.orm import Session
 from src.db.models import Credential, PendingToolApproval
 from src.routers.credentials.encryption import decrypt_credential_data
 
-# Sentinel key detected by _stream_agent_executor in stream.py
 HITL_SENTINEL_KEY = "__approval_required__"
-
-# How long the user has to act before the approval expires
 APPROVAL_TTL_MINUTES = 30
 
 
 class CredentialError(Exception):
-    """Raised when the stored Gmail SMTP credential is invalid."""
+    """Raised when the stored Google OAuth credential is invalid."""
 
 
-def _verify_gmail_smtp_credential(
+def _verify_google_oauth_credential(
     credential_id: int, account_id: int, db: Session
 ) -> None:
     """
-    Validate that the credential exists and contains the required Gmail SMTP fields.
+    Validate that the credential exists and contains the required Google OAuth fields.
     Called at tool-build time so bad configs surface before the first invocation.
     """
     credential = db.query(Credential).filter(
@@ -59,16 +59,16 @@ def _verify_gmail_smtp_credential(
     except Exception as e:
         raise CredentialError(f"Failed to decrypt credential {credential_id}: {e}")
 
-    required = ["from_email", "app_password"]
+    required = ["client_id", "client_secret", "refresh_token", "from_email"]
     missing = [k for k in required if not data.get(k)]
     if missing:
         raise CredentialError(
-            f"Credential {credential_id} is missing required Gmail SMTP fields: {missing}. "
+            f"Credential {credential_id} is missing required Google OAuth fields: {missing}. "
             f"Available keys: {list(data.keys())}"
         )
 
 
-async def create_send_email_google_tool(
+async def create_send_email_google_oauth_tool(
     tool_config: Dict[str, Any],
     account_id: int,
     db: Session,
@@ -76,56 +76,47 @@ async def create_send_email_google_tool(
     **kwargs,
 ) -> StructuredTool:
     """
-    Create the HITL-gated send-plain-text-email-via-Google tool.
+    Create the HITL-gated send-plain-text-email-via-Google-OAuth tool.
 
-    At tool-build time the credential is validated (to surface mis-configuration
-    early).  At invocation time the tool inserts a PendingToolApproval record
-    and returns a HITL sentinel string — it does NOT send any email directly.
-
-    Required tool_config keys:
-        - credentialId: int — ID of the stored GOOGLE_GMAIL_SMTP credential
+    Required tool_config keys (type = sendTxtEmailWithGoogleOAuth):
+        - credentialId: int — ID of the stored GOOGLE_OAUTH credential
         - description:  str (optional) — LLM guidance
     """
     credential_id = tool_config.get("credentialId")
     description = (
         tool_config.get("description")
         or (
-            "Send a plain-text email to a recipient using Gmail SMTP. "
+            "Send a plain-text email to a recipient using Google Gmail (OAuth). "
             "The email will be reviewed by a human before it is delivered."
         )
     )
 
     if not credential_id:
         raise CredentialError(
-            "Missing required field 'credentialId' in sendTxtEmailWithGoogle tool configuration"
+            "Missing required field 'credentialId' in sendTxtEmailWithGoogleOAuth tool configuration"
         )
 
-    # Use the agent owner's account for shared-agent support
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
+    _verify_google_oauth_credential(credential_id, credential_account_id, db)
 
-    # Validate the credential early — fail fast
-    _verify_gmail_smtp_credential(credential_id, credential_account_id, db)
-
-    # Pull agent / chat_session context for the approval record (may be None).
     agent_id: Optional[int] = kwargs.get("agent_id")
     chat_session_id: Optional[int] = kwargs.get("chat_session_id_pk")
 
-    # DB session factory so the closure can open short-lived sessions
     from src.db.database import SessionLocal
 
     print(
-        f"[SEND EMAIL GOOGLE TOOL] HITL tool 'send_txt_email_with_google' ready — "
+        f"[SEND EMAIL GOOGLE OAUTH TOOL] HITL tool 'send_txt_email_with_google_oauth' ready — "
         f"approvals will be stored in pending_tool_approvals "
         f"(credential_id={credential_id}, account_id={credential_account_id})"
     )
 
     async def send_email_impl(to_email: str, subject: str, body: str) -> str:
-        """Queue an email for human approval before sending via Gmail."""
+        """Queue an email for human approval before sending via Google Gmail OAuth."""
         print(f"\n{'='*60}")
-        print(f"[SEND EMAIL GOOGLE TOOL] 📬 HITL: queuing email for approval")
-        print(f"[SEND EMAIL GOOGLE TOOL]   To      : {to_email}")
-        print(f"[SEND EMAIL GOOGLE TOOL]   Subject : {subject}")
-        print(f"[SEND EMAIL GOOGLE TOOL]   Body    : {len(body)} chars")
+        print(f"[SEND EMAIL GOOGLE OAUTH TOOL] 📬 HITL: queuing email for approval")
+        print(f"[SEND EMAIL GOOGLE OAUTH TOOL]   To      : {to_email}")
+        print(f"[SEND EMAIL GOOGLE OAUTH TOOL]   Subject : {subject}")
+        print(f"[SEND EMAIL GOOGLE OAUTH TOOL]   Body    : {len(body)} chars")
         print(f"{'='*60}\n")
 
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
@@ -136,7 +127,7 @@ async def create_send_email_google_tool(
                 account_id=credential_account_id,
                 agent_id=agent_id,
                 chat_session_id=chat_session_id,
-                tool_type="sendTxtEmailWithGoogle",
+                tool_type="sendTxtEmailWithGoogleOAuth",
                 status="pending",
                 payload={
                     "credential_id": credential_id,
@@ -150,10 +141,10 @@ async def create_send_email_google_tool(
             approval_db.commit()
             approval_db.refresh(approval)
             approval_id = approval.id
-            print(f"[SEND EMAIL GOOGLE TOOL] ✅ PendingToolApproval created — id={approval_id}")
+            print(f"[SEND EMAIL GOOGLE OAUTH TOOL] ✅ PendingToolApproval created — id={approval_id}")
         except Exception as e:
             approval_db.rollback()
-            print(f"[SEND EMAIL GOOGLE TOOL] ❌ Failed to create approval record: {e}")
+            print(f"[SEND EMAIL GOOGLE OAUTH TOOL] ❌ Failed to create approval record: {e}")
             import traceback
             traceback.print_exc()
             return json.dumps({
@@ -163,11 +154,10 @@ async def create_send_email_google_tool(
         finally:
             approval_db.close()
 
-        # Return the HITL sentinel so stream.py can emit the SSE event
         return json.dumps({
             HITL_SENTINEL_KEY: True,
             "approval_id": approval_id,
-            "tool_type": "sendTxtEmailWithGoogle",
+            "tool_type": "sendTxtEmailWithGoogleOAuth",
             "preview": {
                 "to_email": to_email,
                 "subject": subject,
@@ -187,7 +177,7 @@ async def create_send_email_google_tool(
     return StructuredTool(
         func=send_email_impl,
         coroutine=send_email_impl,
-        name="send_txt_email_with_google",
+        name="send_txt_email_with_google_oauth",
         description=description,
         args_schema=SendEmailInput,
     )
