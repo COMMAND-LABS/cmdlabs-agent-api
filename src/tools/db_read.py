@@ -136,7 +136,6 @@ async def create_db_read_tool(
             "type": "dbTableRead",
             "credentialId": 6,
             "table": "users",
-            "name": "query_users",
             "description": "Query user records from the users table",
             "columns": ["id", "name", "email", "created_at"],
             "maxLimit": 100
@@ -144,7 +143,6 @@ async def create_db_read_tool(
     """
     credential_id = tool_config.get('credentialId')
     table_name = tool_config.get('table', '').strip()
-    tool_name = tool_config.get('name', 'db_table_read').strip()
     description = tool_config.get('description', f"Query data from {table_name} table")
     allowed_columns = tool_config.get('columns', [])
     max_limit = tool_config.get('maxLimit', 100)
@@ -215,7 +213,7 @@ async def create_db_read_tool(
     except Exception as e:
         raise ValueError(f"Failed to validate table '{table_name}': {e}")
     
-    print(f"[DB READ TOOL] Tool '{tool_name}' ready for table: {table_name} (columns: {selected_columns})")
+    print(f"[DB READ TOOL] Tool 'db_table_read' ready for table: {table_name} (columns: {selected_columns})")
     
     # Define the query implementation
     async def query_impl(
@@ -226,7 +224,7 @@ async def create_db_read_tool(
         """Query the external database table with optional filters."""
         # DEBUG: Tool invocation
         print(f"\n{'='*60}")
-        print(f"[DB READ TOOL] 🚀 TOOL INVOKED: {tool_name}")
+        print(f"[DB READ TOOL] 🚀 TOOL INVOKED: db_table_read")
         print(f"[DB READ TOOL] 📊 Table: {table_name}")
         print(f"[DB READ TOOL] 🔍 Filters: {filters}")
         print(f"[DB READ TOOL] 📈 Limit: {limit}, Offset: {offset}")
@@ -322,7 +320,7 @@ async def create_db_read_tool(
     return StructuredTool(
         func=query_impl,
         coroutine=query_impl,
-        name=tool_name,
+        name="db_table_read",
         description=description,
         args_schema=QueryInput
     )

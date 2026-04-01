@@ -45,7 +45,6 @@ async def create_db_write_tool(
         tool_config: Tool configuration including:
             - credentialId: ID of stored credential with connection string
             - table: Table name to write to
-            - name: Optional custom tool name
             - description: Description for the LLM
             - columns: List of columns that can be written (required for security)
             - requiredColumns: List of columns that must be provided
@@ -69,7 +68,6 @@ async def create_db_write_tool(
             "type": "dbTableWrite",
             "credentialId": 6,
             "table": "leads",
-            "name": "create_lead",
             "description": "Create a new lead record with contact information",
             "columns": ["name", "email", "phone", "description"],
             "requiredColumns": ["name"],
@@ -79,7 +77,6 @@ async def create_db_write_tool(
     """
     credential_id = tool_config.get('credentialId')
     table_name = tool_config.get('table', '').strip()
-    tool_name = tool_config.get('name', 'db_table_write').strip()
     description = tool_config.get('description', f"Insert a record into {table_name} table")
     allowed_columns = tool_config.get('columns', [])
     required_columns = tool_config.get('requiredColumns', [])
@@ -156,7 +153,7 @@ async def create_db_write_tool(
     except Exception as e:
         raise ValueError(f"Failed to validate table '{table_name}': {e}")
     
-    print(f"[DB WRITE TOOL] Tool '{tool_name}' ready for table: {table_name}")
+    print(f"[DB WRITE TOOL] Tool 'db_table_write' ready for table: {table_name}")
     print(f"[DB WRITE TOOL] Allowed columns: {allowed_columns}")
     print(f"[DB WRITE TOOL] Required columns: {required_columns}")
     print(f"[DB WRITE TOOL] Inject account_id: {inject_account_id}")
@@ -167,7 +164,7 @@ async def create_db_write_tool(
         """Insert a record into the external database table."""
         # DEBUG: Tool invocation
         print(f"\n{'='*60}")
-        print(f"[DB WRITE TOOL] 🚀 TOOL INVOKED: {tool_name}")
+        print(f"[DB WRITE TOOL] 🚀 TOOL INVOKED: db_table_write")
         print(f"[DB WRITE TOOL] 📊 Table: {table_name}")
         print(f"[DB WRITE TOOL] 📝 Input kwargs: {kwargs}")
         print(f"{'='*60}\n")
@@ -277,7 +274,7 @@ async def create_db_write_tool(
     return StructuredTool(
         func=insert_impl,
         coroutine=insert_impl,
-        name=tool_name,
+        name="db_table_write",
         description=description,
         args_schema=InsertInput
     )
