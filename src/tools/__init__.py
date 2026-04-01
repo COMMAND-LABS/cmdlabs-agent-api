@@ -1,25 +1,28 @@
 """
-Agent Tools System
+Agent Tools
 
-This module provides a registry and factory pattern for creating tools
-that can be used by agents. Tools extend agent capabilities with actions
-like vector search, web search, calculations, API calls, etc.
-
-Tool types are automatically registered when this package is imported.
+Registry + factory for creating LangChain tools from an agent config.
+Add a new tool type by writing a builder module and registering it below.
 """
-
-from .factory import create_tool_from_config, create_tools_from_agent_config
-from .registry import ToolRegistry, register_tool_type, get_tool_builder
+from .factory import create_tools_from_agent_config
+from .registry import ToolRegistry
 from .db_read import CredentialError
 
-# Import auto_register to register all available tools
-from . import auto_register  # noqa: F401
+# ── Register all built-in tool types ────────────────────────────────────────
+from .vector_search import create_vector_search_tool
+from .vector_search_with_reranking import create_vector_search_with_reranking_tool
+from .db_read import create_db_read_tool
+from .db_write import create_db_write_tool
+from .send_email import create_send_email_tool
+
+ToolRegistry.register("vectorSearch", create_vector_search_tool)
+ToolRegistry.register("vectorSearchWithReranking", create_vector_search_with_reranking_tool)
+ToolRegistry.register("dbTableRead", create_db_read_tool)
+ToolRegistry.register("dbTableWrite", create_db_write_tool)
+ToolRegistry.register("sendTxtEmail", create_send_email_tool)
 
 __all__ = [
-    'create_tool_from_config',
-    'create_tools_from_agent_config',
-    'ToolRegistry',
-    'register_tool_type',
-    'get_tool_builder',
-    'CredentialError',
+    "create_tools_from_agent_config",
+    "ToolRegistry",
+    "CredentialError",
 ]
