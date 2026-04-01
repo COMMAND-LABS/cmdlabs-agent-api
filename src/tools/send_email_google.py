@@ -1,5 +1,5 @@
 """
-Send Plain-Text Email Tool via Google OAuth (Gmail API) — Human-in-the-Loop (HITL) variant.
+Send Plain-Text Email Tool via Gmail SMTP (App Password) — Human-in-the-Loop (HITL) variant.
 
 When the agent calls this tool, execution is NOT immediate.  Instead the tool:
   1. Writes a PendingToolApproval record to the shared database.
@@ -11,14 +11,9 @@ When the agent calls this tool, execution is NOT immediate.  Instead the tool:
 The actual email is sent only after the user clicks **Approve** in the UI,
 which calls the approval endpoint in kalygo3-ai-api.
 
-Required credential fields (service_name = GOOGLE_OAUTH):
-  - client_id
-  - client_secret
-  - refresh_token
+Required credential fields (service_name = GOOGLE_GMAIL_SMTP):
   - from_email   (the Gmail address to send from)
-
-The tool requests a fresh access token from Google at send time using the
-stored refresh token and the gmail.send OAuth scope.
+  - app_password (the Gmail App Password — NOT the account password)
 """
 import json
 from datetime import datetime, timezone, timedelta
@@ -39,14 +34,14 @@ APPROVAL_TTL_MINUTES = 30
 
 
 class CredentialError(Exception):
-    """Raised when the stored Google OAuth credential is invalid."""
+    """Raised when the stored Gmail SMTP credential is invalid."""
 
 
-def _verify_google_oauth_credential(
+def _verify_gmail_smtp_credential(
     credential_id: int, account_id: int, db: Session
 ) -> None:
     """
-    Validate that the credential exists and contains the required Google OAuth fields.
+    Validate that the credential exists and contains the required Gmail SMTP fields.
     Called at tool-build time so bad configs surface before the first invocation.
     """
     credential = db.query(Credential).filter(
@@ -64,11 +59,11 @@ def _verify_google_oauth_credential(
     except Exception as e:
         raise CredentialError(f"Failed to decrypt credential {credential_id}: {e}")
 
-    required = ["client_id", "client_secret", "refresh_token", "from_email"]
+    required = ["from_email", "app_password"]
     missing = [k for k in required if not data.get(k)]
     if missing:
         raise CredentialError(
-            f"Credential {credential_id} is missing required Google OAuth fields: {missing}. "
+            f"Credential {credential_id} is missing required Gmail SMTP fields: {missing}. "
             f"Available keys: {list(data.keys())}"
         )
 
@@ -88,14 +83,14 @@ async def create_send_email_google_tool(
     and returns a HITL sentinel string — it does NOT send any email directly.
 
     Required tool_config keys:
-        - credentialId: int — ID of the stored Google OAuth credential
+        - credentialId: int — ID of the stored GOOGLE_GMAIL_SMTP credential
         - description:  str (optional) — LLM guidance
     """
     credential_id = tool_config.get("credentialId")
     description = (
         tool_config.get("description")
         or (
-            "Send a plain-text email to a recipient using Google Gmail. "
+            "Send a plain-text email to a recipient using Gmail SMTP. "
             "The email will be reviewed by a human before it is delivered."
         )
     )
@@ -109,7 +104,7 @@ async def create_send_email_google_tool(
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
 
     # Validate the credential early — fail fast
-    _verify_google_oauth_credential(credential_id, credential_account_id, db)
+    _verify_gmail_smtp_credential(credential_id, credential_account_id, db)
 
     # Pull agent / chat_session context for the approval record (may be None).
     agent_id: Optional[int] = kwargs.get("agent_id")
