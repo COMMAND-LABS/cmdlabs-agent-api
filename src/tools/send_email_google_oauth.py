@@ -39,10 +39,11 @@ class CredentialError(Exception):
 
 def _verify_google_oauth_credential(
     credential_id: int, account_id: int, db: Session
-) -> None:
+) -> str:
     """
     Validate that the credential exists and contains the required Google OAuth fields.
     Called at tool-build time so bad configs surface before the first invocation.
+    Returns the from_email address for inclusion in approval previews.
     """
     credential = db.query(Credential).filter(
         Credential.id == credential_id,
@@ -66,6 +67,8 @@ def _verify_google_oauth_credential(
             f"Credential {credential_id} is missing required Google OAuth fields: {missing}. "
             f"Available keys: {list(data.keys())}"
         )
+
+    return data["from_email"]
 
 
 async def create_send_email_google_oauth_tool(
@@ -97,7 +100,7 @@ async def create_send_email_google_oauth_tool(
         )
 
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
-    _verify_google_oauth_credential(credential_id, credential_account_id, db)
+    from_email = _verify_google_oauth_credential(credential_id, credential_account_id, db)
 
     agent_id: Optional[int] = kwargs.get("agent_id")
     chat_session_id: Optional[int] = kwargs.get("chat_session_id_pk")
@@ -159,6 +162,7 @@ async def create_send_email_google_oauth_tool(
             "approval_id": approval_id,
             "tool_type": "sendTxtEmailWithGoogleOAuth",
             "preview": {
+                "from_email": from_email,
                 "to_email": to_email,
                 "subject": subject,
                 "body": body,

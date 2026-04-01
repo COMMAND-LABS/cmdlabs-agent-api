@@ -33,10 +33,11 @@ class CredentialError(Exception):
     """Raised when the stored AWS SES credential is invalid."""
 
 
-def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> None:
+def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> str:
     """
     Validate that the credential exists and contains the required AWS SES fields.
     Called at tool-build time so bad configs surface before the first invocation.
+    Returns the from_email address for inclusion in approval previews.
     """
     credential = db.query(Credential).filter(
         Credential.id == credential_id,
@@ -60,6 +61,8 @@ def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> 
             f"Credential {credential_id} is missing required AWS SES fields: {missing}. "
             f"Available keys: {list(data.keys())}"
         )
+
+    return data["from_email"]
 
 
 async def create_send_email_tool(
@@ -97,8 +100,8 @@ async def create_send_email_tool(
     # Use the agent owner's account for shared-agent support
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
 
-    # Validate the credential early — fail fast
-    _verify_ses_credential(credential_id, credential_account_id, db)
+    # Validate the credential early — fail fast; capture from_email for previews
+    from_email = _verify_ses_credential(credential_id, credential_account_id, db)
 
     # Pull agent / chat_session context for the approval record (may be None).
     # chat_session_id_pk is the integer PK; chat_session_id is the UUID string.
@@ -164,6 +167,7 @@ async def create_send_email_tool(
             "approval_id": approval_id,
             "tool_type": "sendTxtEmail",
             "preview": {
+                "from_email": from_email,
                 "to_email": to_email,
                 "subject": subject,
                 "body": body,

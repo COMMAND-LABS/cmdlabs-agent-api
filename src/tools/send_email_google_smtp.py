@@ -40,10 +40,11 @@ class CredentialError(Exception):
 
 def _verify_gmail_smtp_credential(
     credential_id: int, account_id: int, db: Session
-) -> None:
+) -> str:
     """
     Validate that the credential exists and contains the required Gmail SMTP fields.
     Called at tool-build time so bad configs surface before the first invocation.
+    Returns the from_email address for inclusion in approval previews.
     """
     credential = db.query(Credential).filter(
         Credential.id == credential_id,
@@ -67,6 +68,8 @@ def _verify_gmail_smtp_credential(
             f"Credential {credential_id} is missing required Gmail SMTP fields: {missing}. "
             f"Available keys: {list(data.keys())}"
         )
+
+    return data["from_email"]
 
 
 async def create_send_email_google_smtp_tool(
@@ -104,8 +107,8 @@ async def create_send_email_google_smtp_tool(
     # Use the agent owner's account for shared-agent support
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
 
-    # Validate the credential early — fail fast
-    _verify_gmail_smtp_credential(credential_id, credential_account_id, db)
+    # Validate the credential early — fail fast; capture from_email for previews
+    from_email = _verify_gmail_smtp_credential(credential_id, credential_account_id, db)
 
     # Pull agent / chat_session context for the approval record (may be None).
     agent_id: Optional[int] = kwargs.get("agent_id")
@@ -170,6 +173,7 @@ async def create_send_email_google_smtp_tool(
             "approval_id": approval_id,
             "tool_type": "sendTxtEmailWithGoogleSmtp",
             "preview": {
+                "from_email": from_email,
                 "to_email": to_email,
                 "subject": subject,
                 "body": body,
