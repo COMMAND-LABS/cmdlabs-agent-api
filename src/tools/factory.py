@@ -1,12 +1,17 @@
 """
 Tool Factory
 
-Creates tool instances from agent config (v4) definitions.
+Dynamically creates LangChain StructuredTool instances from a v4 agent config.
 """
 from typing import Dict, Any, List, Optional
 from langchain_core.tools import StructuredTool
 from .registry import ToolRegistry
-from .agent_config_versions import extract_tool_configs_for_agent
+
+
+def _extract_tool_configs(agent_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return the list of raw tool config dicts from a v4 agent config."""
+    tools = agent_config.get("data", {}).get("tools", [])
+    return [t for t in tools if isinstance(t, dict)] if isinstance(tools, list) else []
 
 
 async def create_tool_from_config(
@@ -17,55 +22,36 @@ async def create_tool_from_config(
     **kwargs
 ) -> Optional[StructuredTool]:
     """
-    Create a tool from a v2 tool configuration.
-    
-    Args:
-        tool_config: Tool configuration dict with 'type' field
-        account_id: Account ID for fetching credentials
-        db: Database session
-        auth_token: Authentication token (JWT or API key)
-        **kwargs: Additional context passed to tool builder
-        
-    Returns:
-        StructuredTool instance or None if type not supported
-        
-    Example:
-        tool_config = {
-            "type": "vectorSearch",
-            "provider": "pinecone",
-            "index": "my-index",
-            "namespace": "docs",
-            "topK": 10
-        }
-        tool = await create_tool_from_config(tool_config, account_id, db, auth_token)
+    Instantiate a single tool from its config dict.
+
+    Looks up the builder registered for `tool_config["type"]` in ToolRegistry
+    and delegates to it.  Returns None for unknown or misconfigured tool types.
     """
     tool_type = tool_config.get('type')
-    
+
     if not tool_type:
-        print(f"[TOOL FACTORY] Error: Tool config missing 'type' field: {tool_config}")
+        print(f"[TOOL FACTORY] Error: tool config missing 'type' field: {tool_config}")
         return None
-    
-    # Get the builder for this tool type
+
     builder = ToolRegistry.get_builder(tool_type)
-    
+
     if not builder:
-        print(f"[TOOL FACTORY] Warning: Unknown tool type '{tool_type}'. Registered types: {ToolRegistry.list_types()}")
+        print(f"[TOOL FACTORY] Warning: unknown tool type '{tool_type}'. "
+              f"Registered: {ToolRegistry.list_types()}")
         return None
-    
-    # Call the builder
+
     try:
-        print(f"[TOOL FACTORY] Creating tool of type: {tool_type}")
-        tool = await builder(
+        print(f"[TOOL FACTORY] Creating tool: {tool_type}")
+        return await builder(
             tool_config=tool_config,
             account_id=account_id,
             db=db,
             auth_token=auth_token,
             **kwargs
         )
-        return tool
     except Exception as e:
-        print(f"[TOOL FACTORY] Error creating tool of type '{tool_type}': {e}")
         import traceback
+        print(f"[TOOL FACTORY] Error creating tool '{tool_type}': {e}")
         traceback.print_exc()
         return None
 
@@ -78,25 +64,16 @@ async def create_tools_from_agent_config(
     **kwargs
 ) -> List[StructuredTool]:
     """
-    Create all tools from a v4 agent configuration.
+    Build all LangChain tools declared in a v4 agent config.
 
-    Args:
-        agent_config: Full agent config with 'version' and 'data'
-        account_id: Account ID for fetching credentials
-        db: Database session
-        auth_token: Authentication token (JWT or API key)
-        **kwargs: Additional context passed to tool builders
-
-    Returns:
-        List of StructuredTool instances
+    Returns only successfully constructed tools; misconfigured entries are
+    skipped with a warning log rather than raising.
     """
-    tools = []
-    version, version_label, tool_configs = extract_tool_configs_for_agent(agent_config)
-    
-    print(f"[TOOL FACTORY] Creating tools from agent config v{version}")
-    print(f"[TOOL FACTORY] Received kwargs: {list(kwargs.keys())}")
-    print(f"[TOOL FACTORY] Found {len(tool_configs)} tools ({version_label} format)")
+    tool_configs = _extract_tool_configs(agent_config)
+    print(f"[TOOL FACTORY] Building {len(tool_configs)} tool(s). "
+          f"kwargs: {list(kwargs.keys())}")
 
+    tools = []
     for tool_config in tool_configs:
         tool = await create_tool_from_config(
             tool_config=tool_config,
@@ -108,5 +85,5 @@ async def create_tools_from_agent_config(
         if tool:
             tools.append(tool)
 
-    print(f"[TOOL FACTORY] Created {len(tools)} tools successfully")
+    print(f"[TOOL FACTORY] {len(tools)}/{len(tool_configs)} tool(s) built successfully.")
     return tools
