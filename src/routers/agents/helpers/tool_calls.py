@@ -37,6 +37,7 @@ def format_tool_call(
         "db_table_read": _format_db_table_read,
         "db_table_write": _format_db_table_write,
         "send_txt_email_with_ses": _format_send_txt_email,
+        "send_txt_email_with_google": _format_send_txt_email,
     }
     formatter = _FORMATTERS.get(tool_name, _format_generic_tool)
     return formatter(tool_name, tool_input, tool_output)

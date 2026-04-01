@@ -14,12 +14,14 @@ from .vector_search_with_reranking import create_vector_search_with_reranking_to
 from .db_read import create_db_read_tool
 from .db_write import create_db_write_tool
 from .send_email import create_send_email_tool
+from .send_email_google import create_send_email_google_tool
 
 ToolRegistry.register("vectorSearch", create_vector_search_tool)
 ToolRegistry.register("vectorSearchWithReranking", create_vector_search_with_reranking_tool)
 ToolRegistry.register("dbTableRead", create_db_read_tool)
 ToolRegistry.register("dbTableWrite", create_db_write_tool)
 ToolRegistry.register("sendTxtEmail", create_send_email_tool)
+ToolRegistry.register("sendTxtEmailWithGoogle", create_send_email_google_tool)
 
 __all__ = [
     "create_tools_from_agent_config",

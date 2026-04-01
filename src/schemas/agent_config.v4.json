@@ -99,6 +99,9 @@
         },
         {
           "$ref": "#/$defs/sendTxtEmailTool"
+        },
+        {
+          "$ref": "#/$defs/sendTxtEmailWithGoogleTool"
         }
       ]
     },
@@ -203,6 +206,20 @@
       "properties": {
         "type": { "type": "string", "const": "sendTxtEmail" },
         "credentialId": { "type": "integer", "minimum": 1, "description": "ID of stored AWS SES credential (service_name = AWS_SES)." },
+        "description": { "type": "string", "minLength": 1, "description": "Guidance for the LLM on when and how to use this tool." }
+      }
+    },
+    "sendTxtEmailWithGoogleTool": {
+      "type": "object",
+      "description": "Plain-text email sending tool backed by Google Gmail API.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "credentialId"
+      ],
+      "properties": {
+        "type": { "type": "string", "const": "sendTxtEmailWithGoogle" },
+        "credentialId": { "type": "integer", "minimum": 1, "description": "ID of stored Google OAuth credential (service_name = GOOGLE_OAUTH). Must contain client_id, client_secret, refresh_token, and from_email." },
         "description": { "type": "string", "minLength": 1, "description": "Guidance for the LLM on when and how to use this tool." }
       }
     }
