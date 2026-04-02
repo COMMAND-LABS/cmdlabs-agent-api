@@ -390,9 +390,8 @@ async def _stream_agent_executor(
         elif kind == "on_chain_end":
             if event["name"] == "Agent":
                 content = event['data'].get('output', {}).get('output', '')
-                if content:
-                    _store_ai_msg(chat_session_id, content, tool_calls if tool_calls else None)
-                    yield sse_event("on_chain_end", data=content, tool_calls=tool_calls)
+                _store_ai_msg(chat_session_id, content, tool_calls if tool_calls else None)
+                yield sse_event("on_chain_end", data=content, tool_calls=tool_calls if tool_calls else None)
 
         elif kind == "on_chat_model_start":
             if not user_message_stored:
@@ -406,9 +405,25 @@ async def _stream_agent_executor(
                 yield sse_event("on_chat_model_stream", data=content)
 
         elif kind == "on_tool_start":
-            yield sse_event("on_tool_start", data=f"Starting tool: {event['name']} with inputs: {event['data'].get('input')}")
+            run_id = event.get("run_id", "")
+            tool_input = event["data"].get("input", {})
+            # LangChain may pass tool_input as a string in some versions
+            if isinstance(tool_input, str):
+                try:
+                    tool_input = json.loads(tool_input)
+                except Exception:
+                    try:
+                        import ast as _ast
+                        tool_input = _ast.literal_eval(tool_input)
+                    except Exception:
+                        tool_input = {}
+            yield sse_event("on_tool_start", data={
+                "name": event["name"],
+                "input": tool_input if isinstance(tool_input, dict) else {},
+            }, run_id=run_id)
 
         elif kind == "on_tool_end":
+            run_id = event.get("run_id", "")
             tool_output = event['data'].get('output', {})
 
             # Detect HITL sentinel — the send_email tool returns a JSON string
@@ -431,16 +446,29 @@ async def _stream_agent_executor(
                         "preview": hitl_data.get("preview", {}),
                     },
                 )
+                yield sse_event("on_tool_end", run_id=run_id)
             else:
+                tool_input = event['data'].get('input', {})
+                # LangChain may pass tool_input as a string in some versions
+                if isinstance(tool_input, str):
+                    try:
+                        tool_input = json.loads(tool_input)
+                    except Exception:
+                        try:
+                            import ast as _ast
+                            tool_input = _ast.literal_eval(tool_input)
+                        except Exception:
+                            tool_input = {}
                 formatted = format_tool_call(
                     tool_name=event['name'],
-                    tool_input=event['data'].get('input', {}),
+                    tool_input=tool_input if isinstance(tool_input, dict) else {},
                     tool_output=tool_output,
                 )
                 if formatted:
                     tool_calls.append(formatted)
-
-            yield sse_event("on_tool_end")
+                # Send the formatted call (or null) so the client can update its
+                # drawer immediately — no need to wait for on_chain_end.
+                yield sse_event("on_tool_end", data=formatted, run_id=run_id)
 
 
 async def _stream_simple_chat(

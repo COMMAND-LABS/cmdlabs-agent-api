@@ -4,6 +4,8 @@ Tool call formatting helpers for agent completion.
 Handles formatting tool call data according to the chat_message.v2.json schema.
 """
 from typing import Dict, Any, Optional, List
+import ast
+import json as _json
 
 
 def format_tool_call(
@@ -25,10 +27,32 @@ def format_tool_call(
     Returns:
         Formatted tool call dict, or None if the tool output is invalid
     """
-    # Validate tool_output is a dict
+    # Normalize tool_output to a dict.
+    # LangChain's StructuredTool.arun() calls str() on the tool's return value before
+    # passing it to the on_tool_end callback, so tool_output is typically a Python repr
+    # string of the original dict (e.g. "{'results': [...], 'namespace': '...'}").
+    # Newer LangChain versions may also pass a ToolMessage/AIMessage object — extract
+    # the string content from those before attempting to parse.
     if not isinstance(tool_output, dict):
-        print(f"[TOOL CALLS] Warning: tool_output is not a dict (type: {type(tool_output)})")
-        return None
+        # Unwrap LangChain message objects (ToolMessage, AIMessage, etc.)
+        if hasattr(tool_output, "content"):
+            tool_output = tool_output.content
+
+        if isinstance(tool_output, str) and tool_output.strip():
+            # Try JSON first (clean format), then Python literal eval (str() format)
+            try:
+                parsed = _json.loads(tool_output)
+                tool_output = parsed if isinstance(parsed, dict) else {"result": tool_output}
+            except (_json.JSONDecodeError, ValueError):
+                try:
+                    parsed = ast.literal_eval(tool_output)
+                    tool_output = parsed if isinstance(parsed, dict) else {"result": tool_output}
+                except (ValueError, SyntaxError):
+                    print(f"[TOOL CALLS] Could not parse tool_output string; wrapping as result")
+                    tool_output = {"result": tool_output}
+        else:
+            print(f"[TOOL CALLS] Normalizing non-dict/non-str tool_output (type: {type(tool_output).__name__})")
+            tool_output = {"result": str(tool_output)}
     
     # Dispatch by fixed tool name
     _FORMATTERS = {
@@ -48,17 +72,23 @@ def _format_vector_search(
     tool_name: str,
     tool_input: Dict[str, Any],
     tool_output: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Format vector search tool call."""
+) -> Optional[Dict[str, Any]]:
+    """Format vector search tool call. Returns None for error outputs."""
+    if 'error' in tool_output and 'results' not in tool_output:
+        print(f"[TOOL CALLS] Skipping failed vector_search call: {tool_output.get('error', '')[:100]}")
+        return None
+
     results = _format_search_results(tool_output.get('results', []))
-    
+
+    input_data: Dict[str, Any] = {"query": tool_input.get('query', '')}
+    top_k = tool_input.get('top_k', tool_input.get('topK'))
+    if top_k is not None:
+        input_data["topK"] = int(top_k)
+
     return {
         "toolType": "vectorSearch",
         "toolName": tool_name,
-        "input": {
-            "query": tool_input.get('query', ''),
-            "topK": tool_input.get('top_k', tool_input.get('topK'))
-        },
+        "input": input_data,
         "output": {
             "results": results,
             "namespace": tool_output.get('namespace', ''),
@@ -71,17 +101,23 @@ def _format_vector_search_rerank(
     tool_name: str,
     tool_input: Dict[str, Any],
     tool_output: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Format vector search with reranking tool call."""
+) -> Optional[Dict[str, Any]]:
+    """Format vector search with reranking tool call. Returns None for error outputs."""
+    if 'error' in tool_output and 'results' not in tool_output:
+        print(f"[TOOL CALLS] Skipping failed vector_search_rerank call: {tool_output.get('error', '')[:100]}")
+        return None
+
     results = _format_search_results(tool_output.get('results', []))
-    
+
+    input_data: Dict[str, Any] = {"query": tool_input.get('query', '')}
+    top_k = tool_input.get('top_k', tool_input.get('topK'))
+    if top_k is not None:
+        input_data["topK"] = int(top_k)
+
     return {
         "toolType": "vectorSearchWithReranking",
         "toolName": tool_name,
-        "input": {
-            "query": tool_input.get('query', ''),
-            "topK": tool_input.get('top_k', tool_input.get('topK'))
-        },
+        "input": input_data,
         "output": {
             "results": results,
             "namespace": tool_output.get('namespace', ''),

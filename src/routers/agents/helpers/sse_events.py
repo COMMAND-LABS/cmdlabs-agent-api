@@ -10,27 +10,32 @@ from typing import Any, Optional, List, Dict
 def sse_event(
     event: str,
     data: Optional[Any] = None,
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+    run_id: Optional[str] = None,
 ) -> str:
     """
     Create a JSON-encoded SSE event.
-    
+
     Args:
         event: The event type (e.g., "on_chain_start", "on_chat_model_stream")
         data: Optional data payload for the event
-        tool_calls: Optional list of tool calls to include
-        
+        tool_calls: Optional list of tool calls to include (used only on on_chain_end)
+        run_id: Optional LangChain run ID for correlating on_tool_start / on_tool_end pairs
+
     Returns:
         JSON string ready to be yielded in a StreamingResponse
     """
     payload: Dict[str, Any] = {"event": event}
-    
+
     if data is not None:
         payload["data"] = data
-    
-    if tool_calls is not None:
+
+    if run_id:
+        payload["run_id"] = run_id
+
+    if tool_calls:  # only include when non-empty
         payload["toolCalls"] = tool_calls
-    
+
     return json.dumps(payload, separators=(',', ':'))
 
 
