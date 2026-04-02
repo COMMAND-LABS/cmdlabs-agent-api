@@ -98,7 +98,7 @@
           "$ref": "#/$defs/dbTableWriteTool"
         },
         {
-          "$ref": "#/$defs/sendTxtEmailTool"
+          "$ref": "#/$defs/sendTxtEmailWithSesTool"
         },
         {
           "$ref": "#/$defs/sendTxtEmailWithGoogleOAuthTool"
@@ -198,7 +198,7 @@
         "injectChatSessionId": { "type": "boolean", "default": false }
       }
     },
-    "sendTxtEmailTool": {
+    "sendTxtEmailWithSesTool": {
       "type": "object",
       "description": "Plain-text email sending tool backed by AWS SES.",
       "additionalProperties": false,
@@ -207,7 +207,7 @@
         "credentialId"
       ],
       "properties": {
-        "type": { "type": "string", "const": "sendTxtEmail" },
+        "type": { "type": "string", "const": "sendTxtEmailWithSes" },
         "credentialId": { "type": "integer", "minimum": 1, "description": "ID of stored AWS SES credential (service_name = AWS_SES)." },
         "description": { "type": "string", "minLength": 1, "description": "Guidance for the LLM on when and how to use this tool." }
       }

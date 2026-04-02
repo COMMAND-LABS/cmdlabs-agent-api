@@ -189,7 +189,7 @@ def _format_send_txt_email(
 ) -> Dict[str, Any]:
     """Format a send-plain-text-email tool call."""
     return {
-        "toolType": "sendTxtEmail",
+        "toolType": "sendTxtEmailWithSes",
         "toolName": tool_name,
         "input": {
             "to": tool_input.get("to_email", tool_input.get("to", "")),

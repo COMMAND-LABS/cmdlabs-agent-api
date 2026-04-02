@@ -65,7 +65,7 @@ def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> 
     return data["from_email"]
 
 
-async def create_send_email_tool(
+async def create_send_email_with_ses_tool(
     tool_config: Dict[str, Any],
     account_id: int,
     db: Session,
@@ -94,7 +94,7 @@ async def create_send_email_tool(
 
     if not credential_id:
         raise CredentialError(
-            "Missing required field 'credentialId' in sendTxtEmail tool configuration"
+            "Missing required field 'credentialId' in sendTxtEmailWithSes tool configuration"
         )
 
     # Use the agent owner's account for shared-agent support
@@ -134,7 +134,7 @@ async def create_send_email_tool(
                 account_id=credential_account_id,
                 agent_id=agent_id,
                 chat_session_id=chat_session_id,
-                tool_type="sendTxtEmail",
+                tool_type="sendTxtEmailWithSes",
                 status="pending",
                 payload={
                     "credential_id": credential_id,
@@ -165,7 +165,7 @@ async def create_send_email_tool(
         return json.dumps({
             HITL_SENTINEL_KEY: True,
             "approval_id": approval_id,
-            "tool_type": "sendTxtEmail",
+            "tool_type": "sendTxtEmailWithSes",
             "preview": {
                 "from_email": from_email,
                 "to_email": to_email,
