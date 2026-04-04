@@ -1,9 +1,9 @@
 """
 Send HTML Email Tool via AWS SES — Human-in-the-Loop (HITL) variant.
 
-The agent passes a plain-text body; each non-empty line is automatically
-wrapped in a <p> tag at approval/send time, producing a minimal HTML email
-that renders like a text email in any mail client.
+The agent writes a complete, production-grade HTML email and passes it
+directly as the html_body parameter.  No server-side conversion is applied —
+the HTML is stored verbatim and sent exactly as authored.
 
 HITL flow (identical to sendTxtEmailWithSes):
   1. Writes a PendingToolApproval record to the shared database.
@@ -11,9 +11,6 @@ HITL flow (identical to sendTxtEmailWithSes):
      ``tool_approval_required`` SSE event to the client.
   3. Returns a human-readable "pending" message to the LLM so the conversation
      can continue naturally while the human reviews the request.
-
-The HTML conversion happens only after the user clicks Approve, inside the
-approval endpoint in kalygo3-ai-api.
 """
 import json
 from datetime import datetime, timezone, timedelta
@@ -71,8 +68,8 @@ async def create_send_html_email_with_ses_tool(
     """
     Create the HITL-gated send-HTML-email tool.
 
-    The agent writes a plain-text body with newlines separating paragraphs.
-    Each non-empty line is wrapped in a <p> tag at send time.
+    The agent authors a complete, production-grade HTML email and passes it
+    directly as html_body.  The HTML is stored verbatim and delivered as-is.
 
     Required tool_config keys:
         - credentialId: int — ID of the stored AWS SES credential
@@ -82,8 +79,7 @@ async def create_send_html_email_with_ses_tool(
     description = (
         tool_config.get("description")
         or (
-            "Send an HTML email to a recipient. "
-            "Write the body as plain text; separate paragraphs with blank lines. "
+            "Send a beautifully rendered HTML email to a recipient via AWS SES. "
             "The email will be reviewed by a human before it is delivered."
         )
     )
@@ -107,13 +103,13 @@ async def create_send_html_email_with_ses_tool(
         f"(credential_id={credential_id}, account_id={credential_account_id})"
     )
 
-    async def send_html_email_impl(to_email: str, subject: str, body: str) -> str:
+    async def send_html_email_impl(to_email: str, subject: str, html_body: str) -> str:
         """Queue an HTML email for human approval before sending."""
         print(f"\n{'='*60}")
         print(f"[SEND HTML EMAIL TOOL] 📬 HITL: queuing HTML email for approval")
         print(f"[SEND HTML EMAIL TOOL]   To      : {to_email}")
         print(f"[SEND HTML EMAIL TOOL]   Subject : {subject}")
-        print(f"[SEND HTML EMAIL TOOL]   Body    : {len(body)} chars")
+        print(f"[SEND HTML EMAIL TOOL]   HTML    : {len(html_body)} chars")
         print(f"{'='*60}\n")
 
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
@@ -130,7 +126,7 @@ async def create_send_html_email_with_ses_tool(
                     "credential_id": credential_id,
                     "to_email": to_email,
                     "subject": subject,
-                    "body": body,
+                    "html_body": html_body,
                 },
                 expires_at=expires_at,
             )
@@ -159,7 +155,7 @@ async def create_send_html_email_with_ses_tool(
                 "from_email": from_email,
                 "to_email": to_email,
                 "subject": subject,
-                "body": body,
+                "html_body": html_body,
             },
             "message": (
                 f"HTML email to {to_email} has been queued for human review. "
@@ -167,15 +163,76 @@ async def create_send_html_email_with_ses_tool(
             ),
         })
 
+    _HTML_EMAIL_DESCRIPTION = """\
+The complete HTML source for the email body. Author a self-contained,
+production-grade HTML email that renders beautifully across all major email
+clients (Gmail, Outlook, Apple Mail, Yahoo Mail).
+
+Standards and best practices to follow:
+- Use a single-column, table-based layout (not divs) with a max-width of
+  600 px, centred with margin: 0 auto — the universal safe layout for email.
+- All CSS MUST be inline (style="...").  External stylesheets and <style>
+  blocks in <head> are stripped by most email clients.
+- Wrap the entire email in an outer 100%-wide table → inner 600 px table.
+- Use web-safe font stacks:
+    Arial, Helvetica, sans-serif  — for body copy
+    Georgia, 'Times New Roman', serif  — for headlines if desired
+- Set explicit width, cellpadding="0", cellspacing="0", and
+  border="0" on every <table>.
+- Use <td> for padding — never rely on margin on block elements.
+- Background colours go on <table> or <td>, not on <body>.
+- Images must have alt text, explicit width/height, and display:block to
+  avoid phantom gaps.
+- Use a preheader <span> immediately after <body> open:
+    <span style="display:none;max-height:0;overflow:hidden;">
+      One-line preview text shown in inbox list…
+    </span>
+- Minimum tap-target size for links/buttons: 44 px tall.
+- Call-to-action buttons: use a <table> with a coloured <td> containing
+  a centred <a> tag — never a <button> element.
+- Do NOT use JavaScript, CSS files, SVG, video, or form elements.
+- Include a plain-text-friendly fallback; the system sends the HTML as the
+  primary part and auto-generates a stripped plain-text alternative.
+- Use UTF-8 charset and always set lang="en" on <html>.
+
+Minimal skeleton to follow:
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f4;">
+  <span style="display:none;max-height:0;overflow:hidden;">Preheader text here.</span>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f4;">
+    <tr><td align="center" style="padding:24px 0;">
+      <table width="600" cellpadding="0" cellspacing="0" border="0"
+             style="background:#ffffff;border-radius:8px;overflow:hidden;">
+        <!-- header -->
+        <tr><td style="background:#1a1a2e;padding:24px 32px;">
+          <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:22px;
+                    font-weight:bold;color:#ffffff;">Your Brand</p>
+        </td></tr>
+        <!-- body -->
+        <tr><td style="padding:32px;font-family:Arial,Helvetica,sans-serif;
+                        font-size:16px;line-height:1.6;color:#333333;">
+          <p style="margin:0 0 16px;">Hello,</p>
+          <!-- content paragraphs here -->
+        </td></tr>
+        <!-- footer -->
+        <tr><td style="padding:16px 32px;background:#f4f4f4;
+                        font-family:Arial,Helvetica,sans-serif;
+                        font-size:12px;color:#888888;text-align:center;">
+          <p style="margin:0;">© 2026 Your Company · Unsubscribe</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
     class SendHtmlEmailInput(BaseModel):
         to_email: str = Field(description="Recipient email address (e.g. user@example.com)")
-        subject: str = Field(description="Email subject line")
-        body: str = Field(
-            description=(
-                "Email body as plain text. Separate paragraphs with newlines — "
-                "each non-empty line will be rendered as its own paragraph."
-            )
-        )
+        subject: str = Field(description="Email subject line — concise and compelling, under 60 characters")
+        html_body: str = Field(description=_HTML_EMAIL_DESCRIPTION)
 
     return StructuredTool(
         func=send_html_email_impl,

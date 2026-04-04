@@ -217,7 +217,7 @@ def _format_send_html_email(
         "input": {
             "to": tool_input.get("to_email", tool_input.get("to", "")),
             "subject": tool_input.get("subject", ""),
-            "body": tool_input.get("body", ""),
+            "html_body": tool_input.get("html_body", ""),
         },
         "output": {
             "success": tool_output.get("success", False),
