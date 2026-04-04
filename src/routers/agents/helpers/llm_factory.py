@@ -88,6 +88,7 @@ def _create_openai_llm(
         streaming=streaming,
         temperature=temperature,
         stream_usage=True,
+        model_kwargs={"parallel_tool_calls": False},
     )
 
 

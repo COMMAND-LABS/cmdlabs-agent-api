@@ -275,7 +275,7 @@ async def generator(
                 agent=agent_langchain,
                 tools=tools,
                 memory=memory,
-                max_iterations=10
+                max_iterations=25
             ).with_config({
                 "run_name": "Agent",
                 "callbacks": callbacks,
