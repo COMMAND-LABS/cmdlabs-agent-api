@@ -61,6 +61,7 @@ def format_tool_call(
         "db_table_read": _format_db_table_read,
         "db_table_write": _format_db_table_write,
         "send_txt_email_with_ses": _format_send_txt_email,
+        "send_html_email_with_ses": _format_send_html_email,
         "send_txt_email_with_google_oauth": _format_send_txt_email,
         "send_txt_email_with_google_smtp": _format_send_txt_email,
     }
@@ -190,6 +191,28 @@ def _format_send_txt_email(
     """Format a send-plain-text-email tool call."""
     return {
         "toolType": "sendTxtEmailWithSes",
+        "toolName": tool_name,
+        "input": {
+            "to": tool_input.get("to_email", tool_input.get("to", "")),
+            "subject": tool_input.get("subject", ""),
+            "body": tool_input.get("body", ""),
+        },
+        "output": {
+            "success": tool_output.get("success", False),
+            "messageId": tool_output.get("message_id", tool_output.get("messageId")),
+            "error": tool_output.get("error"),
+        },
+    }
+
+
+def _format_send_html_email(
+    tool_name: str,
+    tool_input: Dict[str, Any],
+    tool_output: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Format a send-HTML-email tool call."""
+    return {
+        "toolType": "sendHtmlEmailWithSes",
         "toolName": tool_name,
         "input": {
             "to": tool_input.get("to_email", tool_input.get("to", "")),
