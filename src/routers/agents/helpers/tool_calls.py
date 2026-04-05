@@ -211,15 +211,21 @@ def _format_send_html_email(
     tool_input: Dict[str, Any],
     tool_output: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Format a send-HTML-email tool call."""
+    """Format a send-HTML-email tool call (template or raw-HTML mode)."""
+    inp: Dict[str, Any] = {
+        "to": tool_input.get("to_email", tool_input.get("to", "")),
+        "subject": tool_input.get("subject", ""),
+        "html_body": tool_input.get("html_body") or None,
+    }
+    # Include template metadata when present
+    if tool_input.get("template_id") is not None:
+        inp["template_id"] = tool_input["template_id"]
+    if tool_input.get("variables"):
+        inp["variables"] = tool_input["variables"]
     return {
         "toolType": "sendHtmlEmailWithSes",
         "toolName": tool_name,
-        "input": {
-            "to": tool_input.get("to_email", tool_input.get("to", "")),
-            "subject": tool_input.get("subject", ""),
-            "html_body": tool_input.get("html_body", ""),
-        },
+        "input": inp,
         "output": {
             "success": tool_output.get("success", False),
             "messageId": tool_output.get("message_id", tool_output.get("messageId")),

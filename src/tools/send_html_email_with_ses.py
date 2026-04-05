@@ -1,26 +1,35 @@
 """
 Send HTML Email Tool via AWS SES — Human-in-the-Loop (HITL) variant.
 
-The agent writes a complete, production-grade HTML email and passes it
-directly as the html_body parameter.  No server-side conversion is applied —
-the HTML is stored verbatim and sent exactly as authored.
+Preferred mode — template-based:
+    The agent picks a saved EmailTemplate by ID and supplies variable values.
+    The template is rendered server-side ({{token}} substitution), producing
+    a vetted, production-grade HTML email.  This is strongly preferred over
+    supplying raw HTML because it avoids layout regressions and keeps brand
+    consistency.
 
-HITL flow (identical to sendTxtEmailWithSes):
-  1. Writes a PendingToolApproval record to the shared database.
-  2. Returns a HITL sentinel JSON string so the streaming layer emits a
-     ``tool_approval_required`` SSE event to the client.
-  3. Returns a human-readable "pending" message to the LLM so the conversation
-     can continue naturally while the human reviews the request.
+Fallback mode — raw HTML:
+    If `template_id` is not provided the agent may supply a complete HTML
+    document in `html_body`.  This is an escape hatch for one-off emails that
+    genuinely have no matching template.
+
+HITL flow (both modes):
+  1. Writes a PendingToolApproval row with the rendered html_body in payload.
+  2. Returns a HITL sentinel so the streaming layer emits a
+     ``tool_approval_required`` SSE event.  The chat card shows a live iframe
+     preview of the rendered email.
+  3. Returns a human-readable "pending" message to the LLM.
 """
 import json
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from src.db.models import Credential, PendingToolApproval
+from src.db.models import Credential, EmailTemplate, PendingToolApproval
 from src.routers.credentials.encryption import decrypt_credential_data
 
 HITL_SENTINEL_KEY = "__approval_required__"
@@ -28,7 +37,7 @@ APPROVAL_TTL_MINUTES = 30
 
 
 class CredentialError(Exception):
-    """Raised when the stored AWS SES credential is invalid."""
+    pass
 
 
 def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> str:
@@ -36,26 +45,53 @@ def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> 
         Credential.id == credential_id,
         Credential.account_id == account_id,
     ).first()
-
     if not credential:
         raise CredentialError(
-            f"Credential with ID {credential_id} not found or not accessible."
+            f"Credential {credential_id} not found or not accessible."
         )
-
     try:
         data = decrypt_credential_data(credential.encrypted_data)
     except Exception as e:
         raise CredentialError(f"Failed to decrypt credential {credential_id}: {e}")
-
     required = ["aws_access_key_id", "aws_secret_access_key", "aws_region", "from_email"]
     missing = [k for k in required if not data.get(k)]
     if missing:
         raise CredentialError(
-            f"Credential {credential_id} is missing required AWS SES fields: {missing}. "
-            f"Available keys: {list(data.keys())}"
+            f"Credential {credential_id} missing required AWS SES fields: {missing}"
         )
-
     return data["from_email"]
+
+
+def _render(template: str, variables: Dict[str, str]) -> str:
+    """Replace {{token}} placeholders with caller-supplied values."""
+    return re.sub(
+        r'\{\{(\w+)\}\}',
+        lambda m: variables.get(m.group(1), m.group(0)),
+        template,
+    )
+
+
+def _build_template_catalogue(db: Session, account_id: int) -> str:
+    try:
+        templates = (
+            db.query(EmailTemplate)
+            .filter(EmailTemplate.account_id == account_id)
+            .order_by(EmailTemplate.name)
+            .all()
+        )
+        if not templates:
+            return "  (no templates saved yet — create one in the Email Templates dashboard)"
+        lines = []
+        for t in templates:
+            vars_str = ", ".join(v["name"] for v in (t.variables or []))
+            lines.append(
+                f"  • ID {t.id}: {t.name}"
+                + (f"  |  variables: {vars_str}" if vars_str else "")
+                + (f"\n    {t.description}" if t.description else "")
+            )
+        return "\n".join(lines)
+    except Exception:
+        return "  (unable to list templates)"
 
 
 async def create_send_html_email_with_ses_tool(
@@ -66,24 +102,13 @@ async def create_send_html_email_with_ses_tool(
     **kwargs,
 ) -> StructuredTool:
     """
-    Create the HITL-gated send-HTML-email tool.
-
-    The agent authors a complete, production-grade HTML email and passes it
-    directly as html_body.  The HTML is stored verbatim and delivered as-is.
+    Create the HITL-gated HTML email tool.
 
     Required tool_config keys:
         - credentialId: int — ID of the stored AWS SES credential
-        - description:  str (optional) — LLM guidance
+        - description:  str (optional) — extra LLM guidance
     """
     credential_id = tool_config.get("credentialId")
-    description = (
-        tool_config.get("description")
-        or (
-            "Send a beautifully rendered HTML email to a recipient via AWS SES. "
-            "The email will be reviewed by a human before it is delivered."
-        )
-    )
-
     if not credential_id:
         raise CredentialError(
             "Missing required field 'credentialId' in sendHtmlEmailWithSes tool configuration"
@@ -95,21 +120,160 @@ async def create_send_html_email_with_ses_tool(
     agent_id: Optional[int] = kwargs.get("agent_id")
     chat_session_id: Optional[int] = kwargs.get("chat_session_id_pk")
 
+    # Build a live catalogue of templates for the LLM description
+    catalogue = _build_template_catalogue(db, credential_account_id)
+
+    user_description = tool_config.get("description", "")
+    description = (
+        (f"{user_description}\n\n" if user_description else "")
+        + "Send a professional HTML email via AWS SES.  The email requires human "
+        "approval before it is delivered.\n\n"
+        "━━ PREFERRED: use a saved template ━━\n"
+        "Pass `template_id` (integer) and `variables` (object with token→value pairs).\n"
+        "The template is rendered server-side — consistent layout, tracked opens.\n\n"
+        f"Available templates:\n{catalogue}\n\n"
+        "━━ FALLBACK: raw HTML ━━\n"
+        "Only use `html_body` when no suitable template exists.  Omit `template_id`.\n"
+        "The HTML must be a self-contained, inline-CSS, table-layout document ≤600 px wide."
+    )
+
     from src.db.database import SessionLocal
 
     print(
-        f"[SEND HTML EMAIL TOOL] HITL tool 'send_html_email_with_ses' ready — "
-        f"approvals will be stored in pending_tool_approvals "
-        f"(credential_id={credential_id}, account_id={credential_account_id})"
+        f"[SEND HTML EMAIL TOOL] ready — "
+        f"credential_id={credential_id}, account_id={credential_account_id}"
     )
 
-    async def send_html_email_impl(to_email: str, subject: str, html_body: str) -> str:
-        """Queue an HTML email for human approval before sending."""
+    async def send_html_email_impl(
+        to_email: str,
+        template_id: Optional[int] = None,
+        variables: Optional[Dict[str, str]] = None,
+        html_body: Optional[str] = None,
+    ) -> str:
+        """Queue an HTML email (template-based or raw) for human approval."""
         print(f"\n{'='*60}")
-        print(f"[SEND HTML EMAIL TOOL] 📬 HITL: queuing HTML email for approval")
-        print(f"[SEND HTML EMAIL TOOL]   To      : {to_email}")
-        print(f"[SEND HTML EMAIL TOOL]   Subject : {subject}")
-        print(f"[SEND HTML EMAIL TOOL]   HTML    : {len(html_body)} chars")
+        print(f"[SEND HTML EMAIL TOOL] 📬 queuing HTML email for approval")
+        print(f"[SEND HTML EMAIL TOOL]   To          : {to_email}")
+        print(f"[SEND HTML EMAIL TOOL]   template_id : {template_id}")
+        print(f"[SEND HTML EMAIL TOOL]   variables   : {list((variables or {}).keys())}")
+        print(f"{'='*60}\n")
+
+        # ── Template mode ─────────────────────────────────────────────────────
+        template_name: Optional[str] = None
+        merged_variables: Dict[str, str] = {}
+
+        if template_id is not None:
+            tool_db: Session = SessionLocal()
+            try:
+                tmpl = tool_db.query(EmailTemplate).filter(
+                    EmailTemplate.id == template_id,
+                    EmailTemplate.account_id == credential_account_id,
+                ).first()
+            finally:
+                tool_db.close()
+
+            if not tmpl:
+                return json.dumps({
+                    "success": False,
+                    "error": (
+                        f"Template ID {template_id} not found. "
+                        "Use one of the IDs shown in this tool's description."
+                    ),
+                })
+
+            # Merge defaults → caller-supplied values
+            for v in (tmpl.variables or []):
+                merged_variables[v["name"]] = v.get("default", "")
+            merged_variables.update({k: str(val) for k, val in (variables or {}).items()})
+
+            html_body = _render(tmpl.html_template, merged_variables)
+            rendered_subject = _render(tmpl.subject_template, merged_variables)
+            template_name = tmpl.name
+
+        # ── Raw HTML mode ─────────────────────────────────────────────────────
+        else:
+            if not html_body or not html_body.strip():
+                return json.dumps({
+                    "success": False,
+                    "error": (
+                        "Either 'template_id' or 'html_body' must be provided. "
+                        "Prefer template_id — see the available templates in this tool's description."
+                    ),
+                })
+            rendered_subject = None   # caller must provide subject in this mode
+
+        # subject is read from the Input model; we get it via a closure trick below
+        # — resolved in the outer function via the Pydantic model
+        # (see SendHtmlEmailInput.subject below)
+        ...
+
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
+
+        # subject is passed as a separate arg — see the wrapper below
+        return (html_body, rendered_subject, template_name, merged_variables, expires_at)
+
+    # ── Wrapper that handles subject + creates the DB record ──────────────────
+
+    async def queued_send(
+        to_email: str,
+        subject: str,
+        template_id: Optional[int] = None,
+        variables: Optional[Dict[str, str]] = None,
+        html_body: Optional[str] = None,
+    ) -> str:
+        """Resolve template / raw HTML, then create the PendingToolApproval."""
+        template_name: Optional[str] = None
+        merged_variables: Dict[str, str] = {}
+
+        # ── Template mode ──────────────────────────────────────────────────────
+        if template_id is not None:
+            tool_db: Session = SessionLocal()
+            try:
+                tmpl = tool_db.query(EmailTemplate).filter(
+                    EmailTemplate.id == template_id,
+                    EmailTemplate.account_id == credential_account_id,
+                ).first()
+            finally:
+                tool_db.close()
+
+            if not tmpl:
+                return json.dumps({
+                    "success": False,
+                    "error": (
+                        f"Template ID {template_id} not found. "
+                        "Use one of the IDs shown in this tool's description."
+                    ),
+                })
+
+            for v in (tmpl.variables or []):
+                merged_variables[v["name"]] = v.get("default", "")
+            merged_variables.update({k: str(val) for k, val in (variables or {}).items()})
+
+            html_body = _render(tmpl.html_template, merged_variables)
+            # Allow template to override subject if a 'subject' variable was supplied
+            rendered_subject = _render(tmpl.subject_template, merged_variables)
+            # Only override subject if the template rendered something non-empty
+            if rendered_subject.strip():
+                subject = rendered_subject
+            template_name = tmpl.name
+
+        # ── Raw HTML mode ──────────────────────────────────────────────────────
+        else:
+            if not html_body or not html_body.strip():
+                return json.dumps({
+                    "success": False,
+                    "error": (
+                        "Either 'template_id' or 'html_body' must be provided. "
+                        "Prefer template_id — see the available templates in this tool's description."
+                    ),
+                })
+
+        print(f"\n{'='*60}")
+        print(f"[SEND HTML EMAIL TOOL] 📬 queuing for approval")
+        print(f"[SEND HTML EMAIL TOOL]   To          : {to_email}")
+        print(f"[SEND HTML EMAIL TOOL]   Subject     : {subject}")
+        print(f"[SEND HTML EMAIL TOOL]   template_id : {template_id}")
+        print(f"[SEND HTML EMAIL TOOL]   HTML bytes  : {len(html_body or '')}")
         print(f"{'='*60}\n")
 
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
@@ -127,6 +291,10 @@ async def create_send_html_email_with_ses_tool(
                     "to_email": to_email,
                     "subject": subject,
                     "html_body": html_body,
+                    # Template metadata stored for reference / audit
+                    "template_id": template_id,
+                    "template_name": template_name,
+                    "variables": merged_variables if merged_variables else None,
                 },
                 expires_at=expires_at,
             )
@@ -134,12 +302,10 @@ async def create_send_html_email_with_ses_tool(
             approval_db.commit()
             approval_db.refresh(approval)
             approval_id = approval.id
-            print(f"[SEND HTML EMAIL TOOL] ✅ PendingToolApproval created — id={approval_id}")
+            print(f"[SEND HTML EMAIL TOOL] ✅ PendingToolApproval id={approval_id}")
         except Exception as e:
             approval_db.rollback()
-            print(f"[SEND HTML EMAIL TOOL] ❌ Failed to create approval record: {e}")
-            import traceback
-            traceback.print_exc()
+            import traceback; traceback.print_exc()
             return json.dumps({
                 "success": False,
                 "error": f"Failed to queue email for approval: {e}",
@@ -156,87 +322,63 @@ async def create_send_html_email_with_ses_tool(
                 "to_email": to_email,
                 "subject": subject,
                 "html_body": html_body,
+                "template_name": template_name,
+                "variables": merged_variables if merged_variables else None,
             },
             "message": (
-                f"HTML email to {to_email} has been queued for human review. "
+                f"{'Template ' + repr(template_name) + ' email' if template_name else 'HTML email'} "
+                f"to {to_email} has been queued for human review. "
                 "It will be sent only after the user approves it."
             ),
         })
 
-    _HTML_EMAIL_DESCRIPTION = """\
-The complete HTML source for the email body. Author a self-contained,
-production-grade HTML email that renders beautifully across all major email
-clients (Gmail, Outlook, Apple Mail, Yahoo Mail).
-
-Standards and best practices to follow:
-- Use a single-column, table-based layout (not divs) with a max-width of
-  600 px, centred with margin: 0 auto — the universal safe layout for email.
-- All CSS MUST be inline (style="...").  External stylesheets and <style>
-  blocks in <head> are stripped by most email clients.
-- Wrap the entire email in an outer 100%-wide table → inner 600 px table.
-- Use web-safe font stacks:
-    Arial, Helvetica, sans-serif  — for body copy
-    Georgia, 'Times New Roman', serif  — for headlines if desired
-- Set explicit width, cellpadding="0", cellspacing="0", and
-  border="0" on every <table>.
-- Use <td> for padding — never rely on margin on block elements.
-- Background colours go on <table> or <td>, not on <body>.
-- Images must have alt text, explicit width/height, and display:block to
-  avoid phantom gaps.
-- Use a preheader <span> immediately after <body> open:
-    <span style="display:none;max-height:0;overflow:hidden;">
-      One-line preview text shown in inbox list…
-    </span>
-- Minimum tap-target size for links/buttons: 44 px tall.
-- Call-to-action buttons: use a <table> with a coloured <td> containing
-  a centred <a> tag — never a <button> element.
-- Do NOT use JavaScript, CSS files, SVG, video, or form elements.
-- Include a plain-text-friendly fallback; the system sends the HTML as the
-  primary part and auto-generates a stripped plain-text alternative.
-- Use UTF-8 charset and always set lang="en" on <html>.
-
-Minimal skeleton to follow:
-<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f4f4f4;">
-  <span style="display:none;max-height:0;overflow:hidden;">Preheader text here.</span>
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f4;">
-    <tr><td align="center" style="padding:24px 0;">
-      <table width="600" cellpadding="0" cellspacing="0" border="0"
-             style="background:#ffffff;border-radius:8px;overflow:hidden;">
-        <!-- header -->
-        <tr><td style="background:#1a1a2e;padding:24px 32px;">
-          <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:22px;
-                    font-weight:bold;color:#ffffff;">Your Brand</p>
-        </td></tr>
-        <!-- body -->
-        <tr><td style="padding:32px;font-family:Arial,Helvetica,sans-serif;
-                        font-size:16px;line-height:1.6;color:#333333;">
-          <p style="margin:0 0 16px;">Hello,</p>
-          <!-- content paragraphs here -->
-        </td></tr>
-        <!-- footer -->
-        <tr><td style="padding:16px 32px;background:#f4f4f4;
-                        font-family:Arial,Helvetica,sans-serif;
-                        font-size:12px;color:#888888;text-align:center;">
-          <p style="margin:0;">© 2026 Your Company · Unsubscribe</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>
-"""
-
     class SendHtmlEmailInput(BaseModel):
-        to_email: str = Field(description="Recipient email address (e.g. user@example.com)")
-        subject: str = Field(description="Email subject line — concise and compelling, under 60 characters")
-        html_body: str = Field(description=_HTML_EMAIL_DESCRIPTION)
+        to_email: str = Field(
+            description="Recipient email address (e.g. user@example.com)"
+        )
+        subject: str = Field(
+            description=(
+                "Email subject line — concise and compelling, under 60 characters. "
+                "When using a template that has a 'subject' variable, you may set it "
+                "via the variables dict instead and leave this as a short fallback."
+            )
+        )
+        template_id: Optional[int] = Field(
+            default=None,
+            description=(
+                "ID of a saved email template.  STRONGLY PREFERRED over html_body. "
+                "Look up the available templates in this tool's description and pick "
+                "the most appropriate one."
+            ),
+        )
+        variables: Optional[Dict[str, str]] = Field(
+            default=None,
+            description=(
+                "Variable values to inject into the template.  Keys must match the "
+                "token names defined on the template (shown in the description). "
+                'Example: {"first_name": "Alex", "body": "Your order shipped today."}'
+            ),
+        )
+        html_body: Optional[str] = Field(
+            default=None,
+            description=(
+                "Complete, self-contained HTML email body (fallback — only use when "
+                "no suitable template exists).  Must use inline CSS and a "
+                "table-based layout ≤ 600 px wide."
+            ),
+        )
+
+        @model_validator(mode="after")
+        def require_template_or_html(self) -> "SendHtmlEmailInput":
+            if self.template_id is None and not (self.html_body and self.html_body.strip()):
+                raise ValueError(
+                    "Provide either 'template_id' (preferred) or 'html_body' (fallback)."
+                )
+            return self
 
     return StructuredTool(
-        func=send_html_email_impl,
-        coroutine=send_html_email_impl,
+        func=queued_send,
+        coroutine=queued_send,
         name="send_html_email_with_ses",
         description=description,
         args_schema=SendHtmlEmailInput,
