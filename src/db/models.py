@@ -409,7 +409,7 @@ class EmailTemplate(Base):
     """
     Read-only mirror of the email_templates table managed by kalygo3-ai-api.
     The completion-api queries this table to fetch templates for rendering
-    before queuing a sendTemplateEmailWithSes approval.
+    before queuing a sendHtmlEmailWithSes approval.
     """
     __tablename__ = 'email_templates'
 
