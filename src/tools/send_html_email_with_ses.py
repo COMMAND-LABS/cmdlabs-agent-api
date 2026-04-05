@@ -63,9 +63,9 @@ def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> 
 
 
 def _render(template: str, variables: Dict[str, str]) -> str:
-    """Replace {{token}} placeholders with caller-supplied values."""
+    """Replace {{ token }} placeholders — tolerates optional spaces around the name."""
     return re.sub(
-        r'\{\{(\w+)\}\}',
+        r'\{\{\s*(\w+)\s*\}\}',
         lambda m: variables.get(m.group(1), m.group(0)),
         template,
     )
@@ -144,82 +144,12 @@ async def create_send_html_email_with_ses_tool(
         f"credential_id={credential_id}, account_id={credential_account_id}"
     )
 
-    async def send_html_email_impl(
-        to_email: str,
-        template_id: Optional[int] = None,
-        variables: Optional[Dict[str, str]] = None,
-        html_body: Optional[str] = None,
-    ) -> str:
-        """Queue an HTML email (template-based or raw) for human approval."""
-        print(f"\n{'='*60}")
-        print(f"[SEND HTML EMAIL TOOL] 📬 queuing HTML email for approval")
-        print(f"[SEND HTML EMAIL TOOL]   To          : {to_email}")
-        print(f"[SEND HTML EMAIL TOOL]   template_id : {template_id}")
-        print(f"[SEND HTML EMAIL TOOL]   variables   : {list((variables or {}).keys())}")
-        print(f"{'='*60}\n")
-
-        # ── Template mode ─────────────────────────────────────────────────────
-        template_name: Optional[str] = None
-        merged_variables: Dict[str, str] = {}
-
-        if template_id is not None:
-            tool_db: Session = SessionLocal()
-            try:
-                tmpl = tool_db.query(EmailTemplate).filter(
-                    EmailTemplate.id == template_id,
-                    EmailTemplate.account_id == credential_account_id,
-                ).first()
-            finally:
-                tool_db.close()
-
-            if not tmpl:
-                return json.dumps({
-                    "success": False,
-                    "error": (
-                        f"Template ID {template_id} not found. "
-                        "Use one of the IDs shown in this tool's description."
-                    ),
-                })
-
-            # Merge defaults → caller-supplied values
-            for v in (tmpl.variables or []):
-                merged_variables[v["name"]] = v.get("default", "")
-            merged_variables.update({k: str(val) for k, val in (variables or {}).items()})
-
-            html_body = _render(tmpl.html_template, merged_variables)
-            rendered_subject = _render(tmpl.subject_template, merged_variables)
-            template_name = tmpl.name
-
-        # ── Raw HTML mode ─────────────────────────────────────────────────────
-        else:
-            if not html_body or not html_body.strip():
-                return json.dumps({
-                    "success": False,
-                    "error": (
-                        "Either 'template_id' or 'html_body' must be provided. "
-                        "Prefer template_id — see the available templates in this tool's description."
-                    ),
-                })
-            rendered_subject = None   # caller must provide subject in this mode
-
-        # subject is read from the Input model; we get it via a closure trick below
-        # — resolved in the outer function via the Pydantic model
-        # (see SendHtmlEmailInput.subject below)
-        ...
-
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
-
-        # subject is passed as a separate arg — see the wrapper below
-        return (html_body, rendered_subject, template_name, merged_variables, expires_at)
-
-    # ── Wrapper that handles subject + creates the DB record ──────────────────
-
     async def queued_send(
         to_email: str,
-        subject: str,
         template_id: Optional[int] = None,
         variables: Optional[Dict[str, str]] = None,
         html_body: Optional[str] = None,
+        subject: Optional[str] = None,
     ) -> str:
         """Resolve template / raw HTML, then create the PendingToolApproval."""
         template_name: Optional[str] = None
@@ -250,11 +180,8 @@ async def create_send_html_email_with_ses_tool(
             merged_variables.update({k: str(val) for k, val in (variables or {}).items()})
 
             html_body = _render(tmpl.html_template, merged_variables)
-            # Allow template to override subject if a 'subject' variable was supplied
-            rendered_subject = _render(tmpl.subject_template, merged_variables)
-            # Only override subject if the template rendered something non-empty
-            if rendered_subject.strip():
-                subject = rendered_subject
+            # Subject always comes from the template — LLM must not override it
+            subject = _render(tmpl.subject_template, merged_variables)
             template_name = tmpl.name
 
         # ── Raw HTML mode ──────────────────────────────────────────────────────
@@ -266,6 +193,11 @@ async def create_send_html_email_with_ses_tool(
                         "Either 'template_id' or 'html_body' must be provided. "
                         "Prefer template_id — see the available templates in this tool's description."
                     ),
+                })
+            if not subject or not subject.strip():
+                return json.dumps({
+                    "success": False,
+                    "error": "'subject' is required when not using a template.",
                 })
 
         print(f"\n{'='*60}")
@@ -336,44 +268,51 @@ async def create_send_html_email_with_ses_tool(
         to_email: str = Field(
             description="Recipient email address (e.g. user@example.com)"
         )
-        subject: str = Field(
-            description=(
-                "Email subject line — concise and compelling, under 60 characters. "
-                "When using a template that has a 'subject' variable, you may set it "
-                "via the variables dict instead and leave this as a short fallback."
-            )
-        )
         template_id: Optional[int] = Field(
             default=None,
             description=(
-                "ID of a saved email template.  STRONGLY PREFERRED over html_body. "
-                "Look up the available templates in this tool's description and pick "
-                "the most appropriate one."
+                "ID of a saved email template — STRONGLY PREFERRED. "
+                "The subject line and HTML body are derived entirely from the template; "
+                "do NOT provide a separate subject when using a template. "
+                "Look up the available templates listed in this tool's description."
             ),
         )
         variables: Optional[Dict[str, str]] = Field(
             default=None,
             description=(
-                "Variable values to inject into the template.  Keys must match the "
-                "token names defined on the template (shown in the description). "
+                "Variable values to inject into the template. "
+                "Keys must match the token names defined on the template. "
                 'Example: {"first_name": "Alex", "body": "Your order shipped today."}'
             ),
         )
         html_body: Optional[str] = Field(
             default=None,
             description=(
-                "Complete, self-contained HTML email body (fallback — only use when "
-                "no suitable template exists).  Must use inline CSS and a "
-                "table-based layout ≤ 600 px wide."
+                "Complete, self-contained HTML email body. "
+                "Only use when no suitable template exists. "
+                "Must use inline CSS and a table-based layout ≤ 600 px wide."
+            ),
+        )
+        subject: Optional[str] = Field(
+            default=None,
+            description=(
+                "Email subject line — required ONLY when using raw html_body (no template). "
+                "When template_id is provided the subject is set by the template automatically; "
+                "do not provide this field."
             ),
         )
 
         @model_validator(mode="after")
-        def require_template_or_html(self) -> "SendHtmlEmailInput":
-            if self.template_id is None and not (self.html_body and self.html_body.strip()):
-                raise ValueError(
-                    "Provide either 'template_id' (preferred) or 'html_body' (fallback)."
-                )
+        def validate_inputs(self) -> "SendHtmlEmailInput":
+            if self.template_id is None:
+                if not (self.html_body and self.html_body.strip()):
+                    raise ValueError(
+                        "Provide either 'template_id' (preferred) or 'html_body' (fallback)."
+                    )
+                if not (self.subject and self.subject.strip()):
+                    raise ValueError(
+                        "'subject' is required when using raw html_body instead of a template."
+                    )
             return self
 
     return StructuredTool(

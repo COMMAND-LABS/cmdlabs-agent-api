@@ -58,10 +58,10 @@ def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> 
 
 
 def _render_template(template: str, variables: Dict[str, str]) -> str:
-    """Replace {{token}} placeholders with provided values."""
+    """Replace {{ token }} placeholders — tolerates optional spaces around the name."""
     def replacer(m: re.Match) -> str:
         return variables.get(m.group(1), m.group(0))
-    return re.sub(r'\{\{(\w+)\}\}', replacer, template)
+    return re.sub(r'\{\{\s*(\w+)\s*\}\}', replacer, template)
 
 
 def _build_template_list(db: Session, account_id: int) -> str:
