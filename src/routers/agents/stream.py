@@ -135,7 +135,7 @@ async def generator(
                 "load provider credential",
                 lambda: db.query(Credential).filter(
                     Credential.account_id == account_id,
-                    Credential.service_name == required_credential_type
+                    Credential.credential_type == required_credential_type
                 ).first(),
             )
 

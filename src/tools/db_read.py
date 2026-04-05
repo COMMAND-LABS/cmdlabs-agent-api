@@ -80,10 +80,10 @@ def get_connection_string(credential_id: int, account_id: int, db: Session) -> s
             f"It may have been deleted or you don't have access to it."
         )
     
-    if credential.credential_type != "db_connection":
+    if credential.auth_type != "db_connection":
         raise CredentialError(
             f"Credential {credential_id} is not a database connection. "
-            f"Expected type 'db_connection', got '{credential.credential_type}'."
+            f"Expected type 'db_connection', got '{credential.auth_type}'."
         )
     
     try:

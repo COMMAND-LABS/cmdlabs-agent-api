@@ -94,7 +94,7 @@ async def create_vector_search_tool(
     # Get Pinecone API key from credentials
     credential = db.query(Credential).filter(
         Credential.account_id == credential_account_id,
-        Credential.service_name == ServiceName.PINECONE_API_KEY
+        Credential.credential_type == ServiceName.PINECONE_API_KEY
     ).first()
     
     if not credential:

@@ -58,7 +58,7 @@ def resolve_api_key(db: Session, *, account_id: int, provider: str) -> str:
         "load credential",
         lambda: db.query(Credential).filter(
             Credential.account_id == account_id,
-            Credential.service_name == required_cred,
+            Credential.credential_type == required_cred,
         ).first(),
     )
     if not credential:
