@@ -1,5 +1,5 @@
 """
-Send HTML Email Tool via AWS SES — Human-in-the-Loop (HITL) variant.
+Send Templated HTML Email Tool via AWS SES — Human-in-the-Loop (HITL) variant.
 
 Preferred mode — template-based:
     The agent picks a saved EmailTemplate by ID and supplies variable values.
