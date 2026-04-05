@@ -403,6 +403,30 @@ class Prompt(Base):
         return f'<Prompt {self.id}: {self.name}>'
 
 
+class EmailTemplate(Base):
+    """
+    Read-only mirror of the email_templates table managed by kalygo3-ai-api.
+    The completion-api queries this table to fetch templates for rendering
+    before queuing a sendTemplateEmailWithSes approval.
+    """
+    __tablename__ = 'email_templates'
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    subject_template = Column(String(998), nullable=False)
+    html_template = Column(Text, nullable=False)
+    variables = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(),
+                        onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f'<EmailTemplate {self.id}: {self.name}>'
+
+
 class PendingToolApproval(Base):
     """
     Written by HITL-gated tools (e.g. send_email) when they want to queue an
