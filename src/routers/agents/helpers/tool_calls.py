@@ -54,7 +54,7 @@ def format_tool_call(
             print(f"[TOOL CALLS] Normalizing non-dict/non-str tool_output (type: {type(tool_output).__name__})")
             tool_output = {"result": str(tool_output)}
     
-    # Dispatch by fixed tool name
+    # Dispatch by tool name (exact match first, then prefix for table-specific tools)
     _FORMATTERS = {
         "vector_search": _format_vector_search,
         "vector_search_with_reranking": _format_vector_search_rerank,
@@ -65,7 +65,20 @@ def format_tool_call(
         "send_txt_email_with_google_oauth": _format_send_txt_email,
         "send_txt_email_with_google_smtp": _format_send_txt_email,
     }
-    formatter = _FORMATTERS.get(tool_name, _format_generic_tool)
+
+    _PREFIX_FORMATTERS = [
+        ("db_table_read_", _format_db_table_read),
+        ("db_table_write_", _format_db_table_write),
+    ]
+
+    formatter = _FORMATTERS.get(tool_name)
+    if formatter is None:
+        for prefix, pfmt in _PREFIX_FORMATTERS:
+            if tool_name.startswith(prefix):
+                formatter = pfmt
+                break
+    if formatter is None:
+        formatter = _format_generic_tool
     return formatter(tool_name, tool_input, tool_output)
 
 

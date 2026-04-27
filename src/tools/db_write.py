@@ -270,11 +270,17 @@ async def create_db_write_tool(
     
     print(f"[DB WRITE TOOL] Created dynamic schema with fields: {list(field_definitions.keys())}")
     
+    # Derive a unique tool name so agents with multiple write tools
+    # (e.g. one for "contacts", another for "contact_events") expose
+    # distinct functions to the LLM instead of silently colliding.
+    tool_name_suffix = table_name.lower().replace(" ", "_")
+    unique_tool_name = f"db_table_write_{tool_name_suffix}"
+
     # Create and return the StructuredTool
     return StructuredTool(
         func=insert_impl,
         coroutine=insert_impl,
-        name="db_table_write",
+        name=unique_tool_name,
         description=description,
         args_schema=InsertInput
     )

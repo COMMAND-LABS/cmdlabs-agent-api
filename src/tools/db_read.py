@@ -316,11 +316,16 @@ async def create_db_read_tool(
             ge=0
         )
     
+    # Derive a unique tool name so agents with multiple read tools
+    # expose distinct functions to the LLM.
+    tool_name_suffix = table_name.lower().replace(" ", "_")
+    unique_tool_name = f"db_table_read_{tool_name_suffix}"
+
     # Create and return the StructuredTool
     return StructuredTool(
         func=query_impl,
         coroutine=query_impl,
-        name="db_table_read",
+        name=unique_tool_name,
         description=description,
         args_schema=QueryInput
     )
