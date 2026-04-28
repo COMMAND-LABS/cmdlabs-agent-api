@@ -7,13 +7,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from src.middleware.dynamic_cors import DynamicCORSMiddleware
+from src.ratelimit import limiter
 
-from src.routers import healthcheck, stream, swarms
+from src.routers import healthcheck, swarms
+from src.routers.agents.router import router as agents_router
 
 load_dotenv()
 
@@ -35,7 +36,6 @@ jwt_allowed_origins = [
     "http://localhost:5000",
 ]
 
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -59,5 +59,5 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 app.include_router(healthcheck.router, prefix="")
-app.include_router(stream.router, prefix="/api/agents", tags=["Stream"])
+app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(swarms.router, prefix="/api/swarms", tags=["Swarm"])

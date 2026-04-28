@@ -1,25 +1,9 @@
+"""Send Templated HTML Email Tool via AWS SES — HITL variant.
+
+Preferred: template-based (agent picks an EmailTemplate by ID + variable values).
+Fallback: raw HTML when no suitable template exists.
 """
-Send Templated HTML Email Tool via AWS SES — Human-in-the-Loop (HITL) variant.
 
-Preferred mode — template-based:
-    The agent picks a saved EmailTemplate by ID and supplies variable values.
-    The template is rendered server-side ({{token}} substitution), producing
-    a vetted, production-grade HTML email.  This is strongly preferred over
-    supplying raw HTML because it avoids layout regressions and keeps brand
-    consistency.
-
-Fallback mode — raw HTML:
-    If `template_id` is not provided the agent may supply a complete HTML
-    document in `html_body`.  This is an escape hatch for one-off emails that
-    genuinely have no matching template.
-
-HITL flow (both modes):
-  1. Writes a PendingToolApproval row with the rendered html_body in payload.
-  2. Returns a HITL sentinel so the streaming layer emits a
-     ``tool_approval_required`` SSE event.  The chat card shows a live iframe
-     preview of the rendered email.
-  3. Returns a human-readable "pending" message to the LLM.
-"""
 import json
 import re
 from datetime import datetime, timezone, timedelta
@@ -29,37 +13,9 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from src.db.models import Credential, EmailTemplate, PendingToolApproval
-from src.routers.credentials.encryption import decrypt_credential_data
-
-HITL_SENTINEL_KEY = "__approval_required__"
-APPROVAL_TTL_MINUTES = 30
-
-
-class CredentialError(Exception):
-    pass
-
-
-def _verify_ses_credential(credential_id: int, account_id: int, db: Session) -> str:
-    credential = db.query(Credential).filter(
-        Credential.id == credential_id,
-        Credential.account_id == account_id,
-    ).first()
-    if not credential:
-        raise CredentialError(
-            f"Credential {credential_id} not found or not accessible."
-        )
-    try:
-        data = decrypt_credential_data(credential.encrypted_data)
-    except Exception as e:
-        raise CredentialError(f"Failed to decrypt credential {credential_id}: {e}")
-    required = ["aws_access_key_id", "aws_secret_access_key", "aws_region", "from_email"]
-    missing = [k for k in required if not data.get(k)]
-    if missing:
-        raise CredentialError(
-            f"Credential {credential_id} missing required AWS SES fields: {missing}"
-        )
-    return data["from_email"]
+from src.db.models import EmailTemplate, PendingToolApproval
+from src.tools.exceptions import CredentialError
+from src.tools.hitl_email_base import HITL_SENTINEL_KEY, APPROVAL_TTL_MINUTES, verify_credential
 
 
 def _render(template: str, variables: Dict[str, str]) -> str:
@@ -115,7 +71,11 @@ async def create_send_html_email_with_ses_tool(
         )
 
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
-    from_email = _verify_ses_credential(credential_id, credential_account_id, db)
+    from_email = verify_credential(
+        credential_id, credential_account_id, db,
+        ["aws_access_key_id", "aws_secret_access_key", "aws_region", "from_email"],
+        "AWS SES",
+    )
 
     agent_id: Optional[int] = kwargs.get("agent_id")
     chat_session_id: Optional[int] = kwargs.get("chat_session_id_pk")

@@ -40,13 +40,6 @@ class Logins(Base):
     def __repr__(self):
         return f'<Login {self.login_time}>'
     
-class ChatHistory(Base):
-    __tablename__ = 'chat_history'
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(UUID, nullable=False)
-    message = Column(JSON, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=func.now())
-
 class ChatSession(Base):
     __tablename__ = 'chat_sessions'
     id = Column(Integer, primary_key=True, index=True)
@@ -87,18 +80,6 @@ class UsageCredits(Base):
     
     def __repr__(self):
         return f'<UsageCredits {self.account_id}: ${self.amount}>'
-
-class CredentialType(str, Enum):
-    """
-    Types of credentials that can be stored.
-    This determines the expected structure of encrypted_data.
-    """
-    API_KEY = "api_key"
-    DB_CONNECTION = "db_connection"
-    OAUTH = "oauth"
-    SSH_KEY = "ssh_key"
-    CERTIFICATE = "certificate"
-
 
 class Credential(Base):
     """

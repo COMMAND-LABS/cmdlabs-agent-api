@@ -6,7 +6,7 @@ Add a new tool type by writing a builder module and registering it below.
 """
 from .factory import create_tools_from_agent_config
 from .registry import ToolRegistry
-from .db_read import CredentialError
+from .exceptions import CredentialError
 
 # ── Register all built-in tool types ────────────────────────────────────────
 from .vector_search import create_vector_search_tool

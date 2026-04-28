@@ -11,12 +11,9 @@ Supports multiple credential types:
 - Certificates (cert data, private key)
 """
 from cryptography.fernet import Fernet, MultiFernet
-from dotenv import load_dotenv
 import os
 import json
 from typing import List, Optional, Dict, Any
-
-load_dotenv()
 
 # Get encryption keys from environment variables
 # CREDENTIALS_ENCRYPTION_KEY: Current/primary key (required)

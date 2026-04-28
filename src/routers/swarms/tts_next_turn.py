@@ -11,14 +11,12 @@ from src.routers.swarms.langgraph_schemas import (
     SwarmTtsNextTurnRequest,
     SwarmTtsNextTurnResponse,
 )
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from src.ratelimit import limiter
 
 from src.multi_agent.session_logger import SessionLogger
 from src.routers.swarms.turn_context import prepare_tts_turn_context
 from src.routers.swarms.turn_engine import execute_turn, stream_turn
 
-limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 

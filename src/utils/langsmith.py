@@ -2,10 +2,6 @@
 
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 if not os.getenv("LANGCHAIN_API_KEY") and os.getenv("LANGSMITH_API_KEY"):
     os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
 

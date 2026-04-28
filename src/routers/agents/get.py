@@ -6,15 +6,13 @@ access to.  Returns 404 when access is denied to avoid leaking existence.
 Supports both JWT and API key authentication.
 """
 from fastapi import APIRouter, HTTPException, status, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from src.ratelimit import limiter
 
 from src.deps import db_dependency, auth_dependency
 from src.db.models import Agent, Account
 from src.routers.agents.access import can_access_agent
 from src.routers.agents.models import AgentResponse
 
-limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
 
 
@@ -37,7 +35,7 @@ async def get_agent(
     ``Authorization: Bearer <key>`` or ``X-API-Key: <key>`` header.
     """
     try:
-        account_id = int(auth["id"]) if isinstance(auth["id"], str) else auth["id"]
+        account_id = auth["id"]
 
         account = db.query(Account).filter(Account.id == account_id).first()
         if not account:

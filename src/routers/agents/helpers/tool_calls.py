@@ -55,8 +55,8 @@ def format_tool_call(
             tool_output = {"result": str(tool_output)}
     
     _FORMATTERS = {
-        "vector_search": _format_vector_search,
-        "vector_search_with_reranking": _format_vector_search_rerank,
+        "vector_search": lambda n, i, o: _format_vector_search(n, i, o, "vectorSearch"),
+        "vector_search_with_reranking": lambda n, i, o: _format_vector_search(n, i, o, "vectorSearchWithReranking"),
         "send_txt_email_with_ses": _format_send_txt_email,
         "send_html_email_with_ses": _format_send_html_email,
         "send_txt_email_with_google_oauth": _format_send_txt_email,
@@ -77,11 +77,11 @@ def format_tool_call(
 def _format_vector_search(
     tool_name: str,
     tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any]
+    tool_output: Dict[str, Any],
+    tool_type: str = "vectorSearch",
 ) -> Optional[Dict[str, Any]]:
     """Format vector search tool call. Returns None for error outputs."""
     if 'error' in tool_output and 'results' not in tool_output:
-        print(f"[TOOL CALLS] Skipping failed vector_search call: {tool_output.get('error', '')[:100]}")
         return None
 
     results = _format_search_results(tool_output.get('results', []))
@@ -92,36 +92,7 @@ def _format_vector_search(
         input_data["topK"] = int(top_k)
 
     return {
-        "toolType": "vectorSearch",
-        "toolName": tool_name,
-        "input": input_data,
-        "output": {
-            "results": results,
-            "namespace": tool_output.get('namespace', ''),
-            "index": tool_output.get('index', '')
-        }
-    }
-
-
-def _format_vector_search_rerank(
-    tool_name: str,
-    tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
-    """Format vector search with reranking tool call. Returns None for error outputs."""
-    if 'error' in tool_output and 'results' not in tool_output:
-        print(f"[TOOL CALLS] Skipping failed vector_search_rerank call: {tool_output.get('error', '')[:100]}")
-        return None
-
-    results = _format_search_results(tool_output.get('results', []))
-
-    input_data: Dict[str, Any] = {"query": tool_input.get('query', '')}
-    top_k = tool_input.get('top_k', tool_input.get('topK'))
-    if top_k is not None:
-        input_data["topK"] = int(top_k)
-
-    return {
-        "toolType": "vectorSearchWithReranking",
+        "toolType": tool_type,
         "toolName": tool_name,
         "input": input_data,
         "output": {

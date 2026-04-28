@@ -3,14 +3,11 @@ from sqlalchemy.orm import Session
 from fastapi import Depends, HTTPException, status
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-from dotenv import load_dotenv
 import os
 from .db.database import SessionLocal
 from fastapi import Request
 from .db.models import ApiKey, Account, ApiKeyStatus
 from sqlalchemy import func
-
-load_dotenv()
 
 SECRET_KEY = os.getenv('AUTH_SECRET_KEY')
 ALGORITHM = os.getenv('AUTH_ALGORITHM')
@@ -52,7 +49,7 @@ async def get_current_user(request: Request):
         if email is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user - email not found in token')
         
-        return {'email': email, 'id': account_id}
+        return {'email': email, 'id': int(account_id)}
     except JWTError as e:
         print(f'--- JWT Error: {str(e)} ---')
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {str(e)}')
@@ -85,7 +82,7 @@ async def get_current_user_or_api_key(
             if email:
                 return {
                     'email': email,
-                    'id': int(account_id) if isinstance(account_id, str) else account_id,
+                    'id': int(account_id),
                     'auth_type': 'jwt'
                 }
     except (JWTError, KeyError, ValueError):

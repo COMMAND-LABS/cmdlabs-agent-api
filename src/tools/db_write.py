@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.pool import NullPool
 
-from .db_read import CredentialError, get_connection_string, serialize_value
+from .db_read import get_connection_string, serialize_value
+from .exceptions import CredentialError
 
 
 # Type definitions for database write results

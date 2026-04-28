@@ -48,9 +48,7 @@ def serialize_value(value: Any) -> Any:
         return value
 
 
-class CredentialError(Exception):
-    """Raised when there's an issue with a credential required by a tool."""
-    pass
+from src.tools.exceptions import CredentialError
 
 
 def get_connection_string(credential_id: int, account_id: int, db: Session) -> str:

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import time
 import uuid
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from src.db.models import ChatMessage, ChatSession, Credential
+from src.db.retry import db_retry_once
 from src.routers.agents.helpers.message_history import store_ai_message, store_user_message
 from src.routers.credentials.encryption import get_credential_value
 from src.routers.swarms.langgraph_schemas import LanggraphSwarmConfigInput
@@ -18,34 +17,9 @@ from src.routers.swarms.types import ConversationEntry
 DEFAULT_PROVIDER = "openai"
 
 
-def db_retry_once(db: Session, label: str, fn):
-    try:
-        return fn()
-    except OperationalError as exc:
-        text = str(exc).lower()
-        if not (
-            "ssl connection has been closed unexpectedly" in text
-            or "server closed the connection unexpectedly" in text
-            or "connection reset by peer" in text
-        ):
-            raise
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        db.close()
-        time.sleep(0.5)
-        return fn()
-
-
 def credential_type_for(provider: str) -> Optional[str]:
-    from src.db.service_name import ServiceName
-
-    return {
-        "openai": ServiceName.OPENAI_API_KEY,
-        "anthropic": ServiceName.ANTHROPIC_API_KEY,
-        "ollama": None,
-    }.get(provider)
+    from src.routers.agents.helpers.llm_factory import get_required_credential_type
+    return get_required_credential_type(provider)
 
 
 def resolve_api_key(db: Session, *, account_id: int, provider: str) -> str:
@@ -169,8 +143,7 @@ def count_assistant_messages_since_last_user(history: list[ConversationEntry]) -
 
 
 def build_account_id(auth: dict) -> int:
-    account_id = auth["id"]
-    return int(account_id) if isinstance(account_id, str) else account_id
+    return auth["id"]
 
 
 def ensure_matching_swarm(_: LanggraphSwarmConfigInput) -> None:

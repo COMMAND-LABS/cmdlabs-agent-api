@@ -175,23 +175,3 @@ def _build_text_message(
         
     except Exception as e:
         return HumanMessage(content=f"[Error extracting PDF text: {str(e)}]\n\n{prompt}")
-
-
-# Keep backward compatibility
-def build_multimodal_message(
-    prompt: str,
-    pdf_base64: Optional[str] = None,
-    pdf_filename: Optional[str] = None,
-    max_pages: int = 10
-) -> HumanMessage:
-    """
-    Backward compatible function - uses vision mode by default.
-    For new code, use build_pdf_message() with use_vision parameter.
-    """
-    return build_pdf_message(
-        prompt=prompt,
-        pdf_base64=pdf_base64,
-        pdf_filename=pdf_filename,
-        use_vision=True,
-        max_pages=max_pages
-    )
