@@ -6,14 +6,11 @@ Allows agents to insert records into user-configured databases.
 """
 from typing import Dict, Any, Optional, List, TypedDict
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field, create_model
+from pydantic import Field, create_model
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.pool import NullPool
-from src.db.models import Credential
-from src.routers.credentials.encryption import decrypt_credential_data
 
-# Import shared utilities from db_read
 from .db_read import CredentialError, get_connection_string, serialize_value
 
 
@@ -270,13 +267,8 @@ async def create_db_write_tool(
     
     print(f"[DB WRITE TOOL] Created dynamic schema with fields: {list(field_definitions.keys())}")
     
-    # Derive a unique tool name so agents with multiple write tools
-    # (e.g. one for "contacts", another for "contact_events") expose
-    # distinct functions to the LLM instead of silently colliding.
     tool_name_suffix = table_name.lower().replace(" ", "_")
     unique_tool_name = f"db_table_write_{tool_name_suffix}"
-
-    # Create and return the StructuredTool
     return StructuredTool(
         func=insert_impl,
         coroutine=insert_impl,
