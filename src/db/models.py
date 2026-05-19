@@ -46,9 +46,14 @@ class ChatSession(Base):
     session_id = Column(UUID, unique=True, index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='CASCADE'), nullable=True, index=True)
     account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    # Mirror of the ai-api column (migration owned by ai-api). The contact
+    # binding is read here to scope the contact-chat agent's tools. If this
+    # mirror drifts from ai-api, session.contact_id raises AttributeError only
+    # on the contact-chat path — a test asserts this column exists.
+    contact_id = Column(Integer, ForeignKey('contacts.id', ondelete='SET NULL'), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=func.now())
     title = Column(String)
-    
+
     account = relationship('Account', back_populates='chat_sessions')
     agent = relationship('Agent', back_populates='chat_sessions')
     messages = relationship('ChatMessage', back_populates='session', cascade='all, delete-orphan')
@@ -62,11 +67,54 @@ class ChatMessage(Base):
     chat_session_id = Column(Integer, ForeignKey('chat_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
     message = Column(JSON)
     created_at = Column(DateTime(timezone=True), default=func.now())
-    
+
     session = relationship('ChatSession', back_populates='messages')
-    
+
     def __repr__(self):
         return f'<ChatMessage {self.id}>'
+
+
+# ---------------------------------------------------------------------------
+# CRM mirrors. The contacts / contact_events tables and their migrations are
+# owned by kalygo3-ai-api; these are the completion-api mirror models so the
+# contact-scoped agent tools can query the same shared database. Columns only
+# (no relationships) to keep the mirror minimal. If these drift from ai-api,
+# the contact-chat tools break — a test asserts the columns exist.
+# ---------------------------------------------------------------------------
+
+class Contact(Base):
+    __tablename__ = 'contacts'
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    first_name = Column(String(255), nullable=False)
+    middle_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    phone = Column(String(50), nullable=True)
+    source = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f'<Contact {self.id}>'
+
+
+class ContactEvent(Base):
+    __tablename__ = 'contact_events'
+
+    id = Column(Integer, primary_key=True, index=True)
+    contact_id = Column(Integer, ForeignKey('contacts.id', ondelete='CASCADE'), nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    event_type = Column(String(100), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    occurred_at = Column(DateTime(timezone=True), default=func.now(), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f'<ContactEvent {self.id}: {self.event_type} for contact {self.contact_id}>'
+
 
 class UsageCredits(Base):
     __tablename__ = 'usage_credits'

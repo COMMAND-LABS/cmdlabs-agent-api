@@ -22,6 +22,10 @@ from src.db.database import SessionLocal
 from src.db.models import Agent, ChatSession, ChatMessage, Credential
 from src.db.retry import db_retry_once
 from src.routers.agents.access import load_agent_with_access_check
+from src.routers.agents.contact_agent_config import (
+    CONTACT_AGENT_NAME,
+    contact_session_required,
+)
 from src.routers.agents.helpers import (
     build_message_history,
     store_user_message,
@@ -41,7 +45,7 @@ from src.utils.template_variables import resolve_template_variables, build_varia
 class AgentContext:
     """Everything the streaming / non-streaming endpoints need after setup."""
 
-    agent: Agent
+    agent: Optional[Agent]  # None on the code-defined (override) path
     account_id: int
     provider: str
     model_name: str
@@ -71,7 +75,7 @@ class AgentSetupError(Exception):
 
 async def prepare_agent_context(
     *,
-    agent_id: int,
+    agent_id: Optional[int] = None,
     session_id: str,
     prompt: str,
     db,
@@ -82,6 +86,7 @@ async def prepare_agent_context(
     pdf_base64: Optional[str] = None,
     pdf_filename: Optional[str] = None,
     pdf_use_vision: bool = False,
+    agent_config_override: Optional[dict] = None,
 ) -> AgentContext:
     """Build the full agent context shared by stream and completion endpoints.
 
@@ -89,21 +94,35 @@ async def prepare_agent_context(
     """
     account_id = auth["id"]
 
-    agent = db_retry_once(
-        db, "load agent",
-        lambda: load_agent_with_access_check(db, account_id, agent_id),
-    )
-    if not agent:
-        raise AgentSetupError("Agent not found", "The specified agent was not found or you do not have access.")
-    if not agent.config:
-        raise AgentSetupError("Invalid agent configuration", "Agent configuration is missing.")
+    if agent_config_override is not None:
+        # Server-fixed agent (e.g. contact-chat). It is NOT user-selected, so
+        # the generic per-account access check does not apply: authorization
+        # for this path is the session<->contact ownership gate (validated at
+        # session creation in ai-api) plus the per-tool account_id filter.
+        # We deliberately skip load_agent_with_access_check here.
+        agent = None
+        agent_config = agent_config_override
+        agent_name = CONTACT_AGENT_NAME
+        agent_owner_account_id = account_id
+    else:
+        agent = db_retry_once(
+            db, "load agent",
+            lambda: load_agent_with_access_check(db, account_id, agent_id),
+        )
+        if not agent:
+            raise AgentSetupError("Agent not found", "The specified agent was not found or you do not have access.")
+        if not agent.config:
+            raise AgentSetupError("Invalid agent configuration", "Agent configuration is missing.")
+        agent_config = agent.config
+        agent_name = agent.name
+        agent_owner_account_id = agent.account_id
 
-    config_data = agent.config.get("data", {})
+    config_data = agent_config.get("data", {})
     system_prompt_raw = config_data.get("systemPrompt", "You are a helpful assistant.")
-    var_context = build_variable_context(agent_name=agent.name)
+    var_context = build_variable_context(agent_name=agent_name)
     system_prompt = resolve_template_variables(system_prompt_raw, var_context).replace("{", "{{").replace("}", "}}")
 
-    model_config = get_model_config(agent.config)
+    model_config = get_model_config(agent_config)
     provider = model_config["provider"]
     model_name = model_config["model"]
 
@@ -167,6 +186,17 @@ async def prepare_agent_context(
             db.rollback()
             raise AgentSetupError("Failed to create session", f"Could not create chat session: {exc}")
 
+    # --- Contact scope (fail closed) ---
+    # The session<->contact binding is the server-trusted scope. If the agent
+    # declares contact-scoped tools but the session has no bound contact, the
+    # agent must refuse rather than run unscoped.
+    contact_id = session.contact_id
+    if contact_session_required(config_data) and contact_id is None:
+        raise AgentSetupError(
+            "Contact context required",
+            "This agent's tools require a contact-bound chat session.",
+        )
+
     # --- History ---
     db_messages = db_retry_once(
         db, "load chat messages",
@@ -180,7 +210,7 @@ async def prepare_agent_context(
     # --- Tools ---
     try:
         tools = await create_tools_from_agent_config(
-            agent_config=agent.config,
+            agent_config=agent_config,
             account_id=account_id,
             db=db,
             auth_token=auth_token,
@@ -188,7 +218,8 @@ async def prepare_agent_context(
             chat_session_id=session_uuid,
             agent_id=agent_id,
             chat_session_id_pk=session.id,
-            agent_owner_account_id=agent.account_id,
+            agent_owner_account_id=agent_owner_account_id,
+            contact_id=contact_id,
         )
     except CredentialError as exc:
         raise AgentSetupError("Tool configuration error", str(exc))

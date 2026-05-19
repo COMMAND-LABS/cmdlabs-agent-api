@@ -29,15 +29,16 @@ callbacks = get_langsmith_callbacks("dynamic-agent")
 
 
 async def generator(
-    agent_id: int,
-    session_id: str,
-    prompt: str,
-    db,
-    auth: dict,
+    agent_id: Optional[int] = None,
+    session_id: str = None,
+    prompt: str = None,
+    db=None,
+    auth: dict = None,
     request: Request = None,
     pdf_base64: Optional[str] = None,
     pdf_filename: Optional[str] = None,
     pdf_use_vision: bool = False,
+    agent_config_override: Optional[dict] = None,
 ):
     try:
         ctx = await prepare_agent_context(
@@ -52,6 +53,7 @@ async def generator(
             pdf_base64=pdf_base64,
             pdf_filename=pdf_filename,
             pdf_use_vision=pdf_use_vision,
+            agent_config_override=agent_config_override,
         )
     except AgentSetupError as exc:
         yield sse_error(exc.title, exc.detail)
