@@ -16,7 +16,7 @@ os.environ.setdefault("POSTGRES_URL", "postgresql://test:test@localhost:5432/tes
 os.environ.setdefault("AUTH_SECRET_KEY", "test-secret-key-for-tests")
 os.environ.setdefault("AUTH_ALGORITHM", "HS256")
 os.environ.setdefault("CREDENTIALS_ENCRYPTION_KEY", "dGVzdC1lbmNyeXB0aW9uLWtleS0xMjM0NQ==")
-os.environ.setdefault("EMBEDDINGS_API_URL", "http://localhost:9000")
+os.environ.setdefault("EMBEDDINGS_API_URL", "http://localhost:9100")
 os.environ.setdefault("RERANKER_API_URL", "http://localhost:7100")
 
 

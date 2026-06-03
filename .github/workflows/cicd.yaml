@@ -35,7 +35,7 @@ jobs:
           AUTH_SECRET_KEY: "test-secret"
           AUTH_ALGORITHM: "HS256"
           CREDENTIALS_ENCRYPTION_KEY: "dGVzdC1lbmNyeXB0aW9uLWtleS0xMjM0NQ=="
-          EMBEDDINGS_API_URL: "http://localhost:9000"
+          EMBEDDINGS_API_URL: "http://localhost:9100"
           RERANKER_API_URL: "http://localhost:7100"
         run: python -m pytest tests/ -v --tb=short
 
