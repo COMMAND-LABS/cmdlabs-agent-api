@@ -115,10 +115,59 @@ def build_pdf_message(
         return _build_text_message(prompt, pdf_base64, filename_str, max_pages)
 
 
+def build_image_message(
+    prompt: str,
+    image_base64: str,
+    content_type: str = "image/png",
+    filename: Optional[str] = None,
+) -> HumanMessage:
+    """
+    Build a multimodal LangChain HumanMessage with an image for vision models.
+
+    Mirrors the image_url block used by _build_vision_message.
+    """
+    if not image_base64:
+        return HumanMessage(content=prompt)
+
+    filename_str = f" ({filename})" if filename else ""
+    mime = content_type or "image/png"
+    content = [
+        {"type": "text", "text": f"[Image{filename_str}]"},
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{mime};base64,{image_base64}",
+                "detail": "high",
+            },
+        },
+        {"type": "text", "text": prompt},
+    ]
+    return HumanMessage(content=content)
+
+
+def build_document_message(
+    prompt: str,
+    document_text: str,
+    filename: Optional[str] = None,
+) -> HumanMessage:
+    """
+    Build a text HumanMessage that wraps inline document content (txt/csv/md)
+    in a <document> block, mirroring _build_text_message's structure.
+    """
+    if not document_text:
+        return HumanMessage(content=prompt)
+
+    name = filename or ""
+    document_section = f"""<document filename="{name}">
+{document_text}
+</document>"""
+    return HumanMessage(content=f"{document_section}\n\n{prompt}")
+
+
 def _build_vision_message(
-    prompt: str, 
-    pdf_base64: str, 
-    filename_str: str, 
+    prompt: str,
+    pdf_base64: str,
+    filename_str: str,
     max_pages: int
 ) -> HumanMessage:
     """Build multimodal message with PDF as images."""

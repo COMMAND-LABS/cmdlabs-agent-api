@@ -40,18 +40,22 @@ def store_user_message(
     session_id: int,
     prompt: str,
     pdf_filename: Optional[str] = None,
-    validate: bool = True
+    validate: bool = True,
+    attachment_ref: Optional[Dict[str, Any]] = None,
 ) -> Optional[ChatMessage]:
     """
     Store a user message to the database.
-    
+
     Args:
         db: Database session
         session_id: The chat session's internal ID (not UUID)
         prompt: The user's prompt text
-        pdf_filename: Optional PDF filename if a PDF was attached
+        pdf_filename: Optional PDF filename if a PDF was attached (legacy path)
         validate: Whether to validate against schema
-        
+        attachment_ref: Optional GCS-backed attachment reference
+            ({type, filename, gcs_bucket, gcs_file_path, content_type}) recorded
+            so the original file can be resolved later.
+
     Returns:
         The created ChatMessage, or None if storage failed
     """
@@ -60,14 +64,18 @@ def store_user_message(
             "role": "human",
             "content": prompt
         }
-        
-        # Add attachment metadata if PDF was included
-        if pdf_filename:
+
+        # Prefer the GCS-backed reference; fall back to the legacy pdf-only path.
+        if attachment_ref:
+            entry = {k: v for k, v in attachment_ref.items() if v is not None}
+            entry.setdefault("type", "file")
+            message_obj["attachments"] = [entry]
+        elif pdf_filename:
             message_obj["attachments"] = [{
                 "type": "pdf",
                 "filename": pdf_filename
             }]
-        
+
         # Validate message against schema
         if validate:
             try:

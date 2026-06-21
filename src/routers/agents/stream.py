@@ -38,6 +38,12 @@ async def generator(
     pdf_base64: Optional[str] = None,
     pdf_filename: Optional[str] = None,
     pdf_use_vision: bool = False,
+    image_base64: Optional[str] = None,
+    document_text: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
+    attachment_content_type: Optional[str] = None,
+    gcs_bucket: Optional[str] = None,
+    gcs_file_path: Optional[str] = None,
     agent_config_override: Optional[dict] = None,
 ):
     try:
@@ -53,6 +59,12 @@ async def generator(
             pdf_base64=pdf_base64,
             pdf_filename=pdf_filename,
             pdf_use_vision=pdf_use_vision,
+            image_base64=image_base64,
+            document_text=document_text,
+            attachment_filename=attachment_filename,
+            attachment_content_type=attachment_content_type,
+            gcs_bucket=gcs_bucket,
+            gcs_file_path=gcs_file_path,
             agent_config_override=agent_config_override,
         )
     except AgentSetupError as exc:
@@ -94,7 +106,7 @@ async def _stream_agent_executor(ctx: AgentContext):
 
         elif kind == "on_chat_model_start":
             if not user_message_stored:
-                persist_user_message(ctx.chat_session_id, ctx.prompt, ctx.pdf_filename)
+                persist_user_message(ctx.chat_session_id, ctx.prompt, ctx.pdf_filename, ctx.attachment_ref)
                 user_message_stored = True
             yield sse_event("on_chat_model_start", tool_calls=tool_calls)
 
@@ -139,7 +151,7 @@ async def _stream_agent_executor(ctx: AgentContext):
 
 
 async def _stream_simple_chat(ctx: AgentContext):
-    persist_user_message(ctx.chat_session_id, ctx.prompt, ctx.pdf_filename)
+    persist_user_message(ctx.chat_session_id, ctx.prompt, ctx.pdf_filename, ctx.attachment_ref)
     yield sse_event("on_chat_model_start")
     full_response = ""
 
@@ -231,6 +243,12 @@ async def agent_completion(
             pdf_base64=request_body.pdf,
             pdf_filename=request_body.pdfFilename,
             pdf_use_vision=request_body.pdfUseVision or False,
+            image_base64=request_body.image,
+            document_text=request_body.documentText,
+            attachment_filename=request_body.attachmentFilename,
+            attachment_content_type=request_body.attachmentContentType,
+            gcs_bucket=request_body.gcsBucket,
+            gcs_file_path=request_body.gcsFilePath,
         ),
         media_type="text/event-stream",
     )

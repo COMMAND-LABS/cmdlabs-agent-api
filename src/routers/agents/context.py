@@ -37,7 +37,7 @@ from src.routers.agents.helpers import (
 )
 from src.routers.credentials.encryption import get_credential_value
 from src.tools import create_tools_from_agent_config, CredentialError
-from src.utils.pdf_to_images import build_pdf_message
+from src.utils.pdf_to_images import build_pdf_message, build_image_message, build_document_message
 from src.utils.template_variables import resolve_template_variables, build_variable_context
 
 
@@ -61,6 +61,8 @@ class AgentContext:
     user_email: str
     prompt: str
     pdf_filename: Optional[str]
+    # GCS-backed attachment reference persisted onto the chat message, or None.
+    attachment_ref: Optional[dict]
     callbacks: list
 
 
@@ -86,6 +88,12 @@ async def prepare_agent_context(
     pdf_base64: Optional[str] = None,
     pdf_filename: Optional[str] = None,
     pdf_use_vision: bool = False,
+    image_base64: Optional[str] = None,
+    document_text: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
+    attachment_content_type: Optional[str] = None,
+    gcs_bucket: Optional[str] = None,
+    gcs_file_path: Optional[str] = None,
     agent_config_override: Optional[dict] = None,
 ) -> AgentContext:
     """Build the full agent context shared by stream and completion endpoints.
@@ -269,7 +277,10 @@ async def prepare_agent_context(
             "tags": [f"user:{user_email}", f"agent:{agent_id}"],
         })
 
-    # --- Agent input (text or PDF) ---
+    # --- Agent input (text or attachment) ---
+    # The current turn's attachment content rides inline to the model. The
+    # durable copy already lives in the account's GCS bucket (referenced by
+    # attachment_ref below); we do not re-download it here.
     if pdf_base64:
         agent_input = build_pdf_message(
             prompt=prompt,
@@ -278,8 +289,38 @@ async def prepare_agent_context(
             use_vision=pdf_use_vision,
             max_pages=10 if pdf_use_vision else 50,
         )
+    elif image_base64:
+        agent_input = build_image_message(
+            prompt=prompt,
+            image_base64=image_base64,
+            content_type=attachment_content_type or "image/png",
+            filename=attachment_filename,
+        )
+    elif document_text:
+        agent_input = build_document_message(
+            prompt=prompt,
+            document_text=document_text,
+            filename=attachment_filename,
+        )
     else:
         agent_input = prompt
+
+    # Build the persisted attachment reference (GCS-backed) for the chat message.
+    attachment_ref: Optional[dict] = None
+    if gcs_bucket and gcs_file_path:
+        if pdf_base64:
+            attachment_type = "pdf"
+        elif image_base64:
+            attachment_type = "image"
+        else:
+            attachment_type = "document"
+        attachment_ref = {
+            "type": attachment_type,
+            "filename": attachment_filename or pdf_filename,
+            "gcs_bucket": gcs_bucket,
+            "gcs_file_path": gcs_file_path,
+            "content_type": attachment_content_type,
+        }
 
     # Release the DB connection before the long-running LLM call
     chat_session_id = session.id
@@ -302,6 +343,7 @@ async def prepare_agent_context(
         user_email=user_email,
         prompt=prompt,
         pdf_filename=pdf_filename,
+        attachment_ref=attachment_ref,
         callbacks=callbacks,
     )
 
@@ -310,11 +352,16 @@ async def prepare_agent_context(
 # Short-lived DB session wrappers for message persistence
 # ---------------------------------------------------------------------------
 
-def persist_user_message(chat_session_id: int, prompt: str, pdf_filename: Optional[str] = None):
+def persist_user_message(
+    chat_session_id: int,
+    prompt: str,
+    pdf_filename: Optional[str] = None,
+    attachment_ref: Optional[dict] = None,
+):
     """Write user message using a short-lived DB session."""
     db = SessionLocal()
     try:
-        store_user_message(db, chat_session_id, prompt, pdf_filename)
+        store_user_message(db, chat_session_id, prompt, pdf_filename, attachment_ref=attachment_ref)
     finally:
         db.close()
 
