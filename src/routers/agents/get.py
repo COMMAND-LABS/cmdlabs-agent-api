@@ -5,6 +5,8 @@ Returns the configuration of an agent the caller owns or has been granted
 access to.  Returns 404 when access is denied to avoid leaking existence.
 Supports both JWT and API key authentication.
 """
+import logging
+
 from fastapi import APIRouter, HTTPException, Request, status
 
 from src.db.models import Account, Agent
@@ -12,6 +14,8 @@ from src.deps import auth_dependency, db_dependency
 from src.ratelimit import limiter
 from src.routers.agents.access import can_access_agent
 from src.routers.agents.models import AgentResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -67,7 +71,7 @@ async def get_agent(
             detail=f"Invalid agent ID: {e!s}",
         ) from e
     except Exception as e:
-        print(f"[GET AGENT] Error retrieving agent {agent_id}: {e!s}")
+        logger.error(f"[GET AGENT] Error retrieving agent {agent_id}: {e!s}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while retrieving agent: {e!s}",

@@ -1,6 +1,7 @@
 """Agent streaming completion endpoint (SSE)."""
 
 import json
+import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -22,6 +23,8 @@ from src.routers.agents.helpers import (
     sse_event,
 )
 from src.utils.langsmith import get_langsmith_callbacks
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 callbacks = get_langsmith_callbacks("dynamic-agent")
@@ -78,8 +81,7 @@ async def generator(
             async for event_data in _stream_simple_chat(ctx):
                 yield event_data
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"[STREAM] Unhandled error during agent stream: {e!s}")
         yield sse_error("Internal server error", str(e))
 
 
@@ -182,8 +184,7 @@ async def _stream_simple_chat(ctx: AgentContext):
                     yield sse_event("on_chat_model_stream", data=content)
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"[STREAM] Error during streaming: {e!s}")
         yield sse_error("Streaming error", str(e))
         return
 

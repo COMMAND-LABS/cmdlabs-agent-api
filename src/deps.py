@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Annotated
 
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from .db.database import SessionLocal
 from .db.models import Account, ApiKey, ApiKeyStatus
+
+logger = logging.getLogger(__name__)
 
 SECRET_KEY = os.getenv('AUTH_SECRET_KEY')
 ALGORITHM = os.getenv('AUTH_ALGORITHM')
@@ -35,7 +38,7 @@ async def get_current_user(request: Request):
         token = request.cookies.get("jwt")
 
         if not token:
-            print('--- No JWT token found in cookies ---')
+            logger.error('--- No JWT token found in cookies ---')
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated - no JWT token found in cookies")
 
 
@@ -44,22 +47,20 @@ async def get_current_user(request: Request):
         email: str | None = payload.get('sub')
         account_id: str = payload.get('id')
 
-        print(f'--- email (sub): {email} ---')
-        print(f'--- account_id: {account_id} ---')
+        logger.debug(f'--- email (sub): {email} ---')
+        logger.debug(f'--- account_id: {account_id} ---')
 
         if email is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user - email not found in token')
 
         return {'email': email, 'id': int(account_id)}
     except JWTError as e:
-        print(f'--- JWT Error: {e!s} ---')
+        logger.error(f'--- JWT Error: {e!s} ---')
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}') from e
     except HTTPException:
         raise
     except Exception as e:
-        print(f'--- Unexpected error in get_current_user: {e!s} ---')
-        import traceback
-        print(f'--- Traceback: {traceback.format_exc()} ---')
+        logger.exception(f'--- Unexpected error in get_current_user: {e!s} ---')
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}') from e
 
 jwt_dependency = Annotated[dict, Depends(get_current_user)]

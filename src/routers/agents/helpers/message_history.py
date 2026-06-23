@@ -4,12 +4,15 @@ Message history helpers for agent completion.
 Handles building LangChain message history from database messages
 and storing new messages to the database.
 """
+import logging
 from typing import Any
 
 from langchain_community.chat_message_histories import ChatMessageHistory
 
 from src.db.models import ChatMessage
 from src.schemas import validate_against_schema
+
+logger = logging.getLogger(__name__)
 
 
 def build_message_history(db_messages: list[ChatMessage]) -> ChatMessageHistory:
@@ -83,7 +86,7 @@ def store_user_message(
             try:
                 validate_against_schema(message_obj, "message", 1)
             except Exception as validation_error:
-                print(f"[MESSAGE HISTORY] Message validation error: {validation_error}")
+                logger.error(f"[MESSAGE HISTORY] Message validation error: {validation_error}")
                 # Continue anyway - don't fail the request
 
         user_message = ChatMessage(
@@ -93,11 +96,11 @@ def store_user_message(
         db.add(user_message)
         db.commit()
         db.refresh(user_message)
-        print(f"[MESSAGE HISTORY] Stored user message with ID: {user_message.id}")
+        logger.info(f"[MESSAGE HISTORY] Stored user message with ID: {user_message.id}")
         return user_message
 
     except Exception as e:
-        print(f"[MESSAGE HISTORY] Failed to store user message: {e}")
+        logger.error(f"[MESSAGE HISTORY] Failed to store user message: {e}")
         db.rollback()
         return None
 
@@ -141,7 +144,7 @@ def store_ai_message(
             try:
                 validate_against_schema(message_obj, "chat_message", 2)
             except Exception as validation_error:
-                print(f"[MESSAGE HISTORY] Message validation error: {validation_error}")
+                logger.error(f"[MESSAGE HISTORY] Message validation error: {validation_error}")
                 # Continue anyway - don't fail the request
 
         ai_message = ChatMessage(
@@ -151,10 +154,10 @@ def store_ai_message(
         db.add(ai_message)
         db.commit()
         db.refresh(ai_message)
-        print(f"[MESSAGE HISTORY] Stored AI response with ID: {ai_message.id}")
+        logger.info(f"[MESSAGE HISTORY] Stored AI response with ID: {ai_message.id}")
         return ai_message
 
     except Exception as e:
-        print(f"[MESSAGE HISTORY] Failed to store AI response: {e}")
+        logger.error(f"[MESSAGE HISTORY] Failed to store AI response: {e}")
         db.rollback()
         return None

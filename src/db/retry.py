@@ -5,9 +5,12 @@ that occur intermittently with Supabase poolers and Cloud Run cold starts.
 """
 
 import contextlib
+import logging
 import time
 
 from sqlalchemy.exc import OperationalError
+
+logger = logging.getLogger(__name__)
 
 _TRANSIENT_PATTERNS = (
     "ssl connection has been closed unexpectedly",
@@ -29,7 +32,7 @@ def db_retry_once(db, label: str, fn):
     except OperationalError as exc:
         if not is_transient_db_error(exc):
             raise
-        print(f"[DB RETRY] Transient error during {label}; retrying once...")
+        logger.warning(f"[DB RETRY] Transient error during {label}; retrying once...")
         with contextlib.suppress(Exception):
             db.rollback()
         db.close()

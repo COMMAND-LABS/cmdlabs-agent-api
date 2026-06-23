@@ -5,6 +5,7 @@ Database Read Tool
 Provides read access to external database tables via stored credentials.
 Allows agents to query structured data from user-configured databases.
 """
+import logging
 from typing import Any, TypedDict
 
 from langchain_core.tools import StructuredTool
@@ -15,6 +16,9 @@ from sqlalchemy.pool import NullPool
 
 from src.db.models import Credential
 from src.routers.credentials.encryption import decrypt_credential_data
+from src.tools.exceptions import CredentialError
+
+logger = logging.getLogger(__name__)
 
 
 # Type definitions for database read results
@@ -46,9 +50,6 @@ def serialize_value(value: Any) -> Any:
     if hasattr(value, '__dict__'):  # Complex objects
         return str(value)
     return value
-
-
-from src.tools.exceptions import CredentialError
 
 
 def get_connection_string(credential_id: int, account_id: int, db: Session) -> str:
@@ -169,7 +170,7 @@ async def create_db_read_tool(
             poolclass=NullPool,  # No persistent pool - connections close after each use
             pool_pre_ping=True
         )
-        print(f"[DB READ TOOL] Created connection to external database for table: {table_name}")
+        logger.info(f"[DB READ TOOL] Created connection to external database for table: {table_name}")
     except Exception as e:
         raise CredentialError(
             f"Failed to connect to database using credential {credential_id}: {e}"
@@ -190,7 +191,7 @@ async def create_db_read_tool(
 
             # Get actual column names from the table
             table_columns = [col['name'] for col in inspector.get_columns(table_name)]
-            print(f"[DB READ TOOL] Table '{table_name}' columns: {table_columns}")
+            logger.debug(f"[DB READ TOOL] Table '{table_name}' columns: {table_columns}")
 
             # Validate allowed_columns exist in the table
             if allowed_columns:
@@ -203,7 +204,7 @@ async def create_db_read_tool(
                 selected_columns = allowed_columns
             else:
                 # If no columns specified, use all columns (not recommended for security)
-                print("[DB READ TOOL] ⚠️ Warning: No columns specified, exposing all columns")
+                logger.warning("[DB READ TOOL] ⚠️ Warning: No columns specified, exposing all columns")
                 selected_columns = table_columns
 
     except (CredentialError, ValueError):
@@ -211,7 +212,7 @@ async def create_db_read_tool(
     except Exception as e:
         raise ValueError(f"Failed to validate table '{table_name}': {e}") from e
 
-    print(f"[DB READ TOOL] Tool 'db_table_read' ready for table: {table_name} (columns: {selected_columns})")
+    logger.info(f"[DB READ TOOL] Tool 'db_table_read' ready for table: {table_name} (columns: {selected_columns})")
 
     # Define the query implementation
     async def query_impl(
@@ -221,18 +222,16 @@ async def create_db_read_tool(
     ) -> DbReadSuccess | DbReadError:
         """Query the external database table with optional filters."""
         # DEBUG: Tool invocation
-        print(f"\n{'='*60}")
-        print("[DB READ TOOL] 🚀 TOOL INVOKED: db_table_read")
-        print(f"[DB READ TOOL] 📊 Table: {table_name}")
-        print(f"[DB READ TOOL] 🔍 Filters: {filters}")
-        print(f"[DB READ TOOL] 📈 Limit: {limit}, Offset: {offset}")
-        print(f"{'='*60}\n")
+        logger.debug("[DB READ TOOL] 🚀 TOOL INVOKED: db_table_read")
+        logger.debug(f"[DB READ TOOL] 📊 Table: {table_name}")
+        logger.debug(f"[DB READ TOOL] 🔍 Filters: {filters}")
+        logger.debug(f"[DB READ TOOL] 📈 Limit: {limit}, Offset: {offset}")
 
         try:
             # Enforce max limit
             if limit > max_limit:
                 limit = max_limit
-                print(f"[DB READ TOOL] ⚠️ Limit capped to max: {max_limit}")
+                logger.warning(f"[DB READ TOOL] ⚠️ Limit capped to max: {max_limit}")
 
             # Build the SELECT query with only allowed columns
             columns_sql = ", ".join([f'"{col}"' for col in selected_columns])
@@ -248,9 +247,9 @@ async def create_db_read_tool(
                         param_name = f"p{i}"
                         where_clauses.append(f'"{column_name}" = :{param_name}')
                         params[param_name] = value
-                        print(f"[DB READ TOOL] 🔍 Applied filter: {column_name} = {value}")
+                        logger.debug(f"[DB READ TOOL] 🔍 Applied filter: {column_name} = {value}")
                     else:
-                        print(f"[DB READ TOOL] ⚠️ Ignoring filter on non-allowed column: {column_name}")
+                        logger.warning(f"[DB READ TOOL] ⚠️ Ignoring filter on non-allowed column: {column_name}")
 
                 if where_clauses:
                     query_sql += " WHERE " + " AND ".join(where_clauses)
@@ -260,7 +259,7 @@ async def create_db_read_tool(
             params["limit"] = limit
             params["offset"] = offset
 
-            print(f"[DB READ TOOL] 📡 Executing query: {query_sql}")
+            logger.debug(f"[DB READ TOOL] 📡 Executing query: {query_sql}")
 
             # Execute query
             with external_engine.connect() as conn:
@@ -268,7 +267,7 @@ async def create_db_read_tool(
                 rows = result.fetchall()
                 column_names = result.keys()
 
-            print(f"[DB READ TOOL] ✅ Query complete: {len(rows)} rows returned")
+            logger.info(f"[DB READ TOOL] ✅ Query complete: {len(rows)} rows returned")
 
             # Format results
             formatted_results = []
@@ -278,8 +277,7 @@ async def create_db_read_tool(
                     row_data[col_name] = serialize_value(value)
                 formatted_results.append({"data": row_data})
 
-            print(f"[DB READ TOOL] 🎯 Returning {len(formatted_results)} results")
-            print(f"{'='*60}\n")
+            logger.debug(f"[DB READ TOOL] 🎯 Returning {len(formatted_results)} results")
 
             return {
                 "results": formatted_results,
@@ -288,12 +286,9 @@ async def create_db_read_tool(
             }
 
         except Exception as e:
-            print("\n[DB READ TOOL] ❌❌❌ EXCEPTION CAUGHT ❌❌❌")
-            print(f"[DB READ TOOL] Error: {e}")
-            print(f"[DB READ TOOL] Type: {type(e).__name__}")
-            import traceback
-            traceback.print_exc()
-            print(f"{'='*60}\n")
+            logger.exception("[DB READ TOOL] ❌❌❌ EXCEPTION CAUGHT ❌❌❌")
+            logger.error(f"[DB READ TOOL] Error: {e}")
+            logger.error(f"[DB READ TOOL] Type: {type(e).__name__}")
             return {"error": str(e)}
 
     # Define the Pydantic schema for the tool arguments

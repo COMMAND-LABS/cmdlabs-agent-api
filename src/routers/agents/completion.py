@@ -5,6 +5,8 @@ response.  Uses the same agent setup logic as stream.py via the shared
 ``prepare_agent_context`` helper.
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
@@ -19,6 +21,8 @@ from src.routers.agents.context import (
 )
 from src.routers.agents.helpers import format_tool_call
 from src.utils.langsmith import get_langsmith_callbacks
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 callbacks = get_langsmith_callbacks("dynamic-agent-completion")
@@ -90,8 +94,7 @@ async def agent_completion(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"[COMPLETION] Unhandled error during completion: {e!s}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Completion failed: {e!s}",

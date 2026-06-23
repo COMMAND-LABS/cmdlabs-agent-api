@@ -5,7 +5,10 @@ Handles formatting tool call data according to the chat_message.v2.json schema.
 """
 import ast
 import json as _json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def format_tool_call(
@@ -48,10 +51,10 @@ def format_tool_call(
                     parsed = ast.literal_eval(tool_output)
                     tool_output = parsed if isinstance(parsed, dict) else {"result": tool_output}
                 except (ValueError, SyntaxError):
-                    print("[TOOL CALLS] Could not parse tool_output string; wrapping as result")
+                    logger.debug("[TOOL CALLS] Could not parse tool_output string; wrapping as result")
                     tool_output = {"result": tool_output}
         else:
-            print(f"[TOOL CALLS] Normalizing non-dict/non-str tool_output (type: {type(tool_output).__name__})")
+            logger.debug(f"[TOOL CALLS] Normalizing non-dict/non-str tool_output (type: {type(tool_output).__name__})")
             tool_output = {"result": str(tool_output)}
 
     _FORMATTERS = {

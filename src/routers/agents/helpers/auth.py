@@ -5,7 +5,11 @@ Handles extracting authentication tokens from requests for use
 with internal APIs (e.g., embedding service).
 """
 
+import logging
+
 from fastapi import Request
+
+logger = logging.getLogger(__name__)
 
 
 def extract_auth_token(request: Request, auth: dict) -> str | None:
@@ -62,6 +66,6 @@ def _extract_api_key(request: Request) -> str | None:
         api_key = request.headers.get("X-API-Key", "").strip() or None
 
     if api_key:
-        print("[AUTH] Using API key authentication for internal services")
+        logger.info("[AUTH] Using API key authentication for internal services")
 
     return api_key

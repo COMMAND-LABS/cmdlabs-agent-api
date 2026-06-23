@@ -11,10 +11,13 @@ Supports multiple credential types:
 - Certificates (cert data, private key)
 """
 import json
+import logging
 import os
 from typing import Any
 
 from cryptography.fernet import Fernet, MultiFernet
+
+logger = logging.getLogger(__name__)
 
 # Get encryption keys from environment variables
 # CREDENTIALS_ENCRYPTION_KEY: Current/primary key (required)
@@ -36,14 +39,14 @@ def get_encryption_keys() -> list[bytes]:
             keys.append(ENCRYPTION_KEY_ENV.encode())
         except Exception:
             key = Fernet.generate_key()
-            print(f"WARNING: Invalid encryption key format. Generated new key: {key.decode()}")
+            logger.warning(f"WARNING: Invalid encryption key format. Generated new key: {key.decode()}")
             keys.append(key)
     else:
         # Generate a new key (for development only)
-        print("WARNING: CREDENTIALS_ENCRYPTION_KEY not set. Generating a new key.")
-        print("This key should be saved and set as an environment variable.")
+        logger.warning("WARNING: CREDENTIALS_ENCRYPTION_KEY not set. Generating a new key.")
+        logger.warning("This key should be saved and set as an environment variable.")
         key = Fernet.generate_key()
-        print(f"Generated key (save this): {key.decode()}")
+        logger.warning(f"Generated key (save this): {key.decode()}")
         keys.append(key)
 
     # Get old keys for decryption (for key rotation support)
@@ -53,7 +56,7 @@ def get_encryption_keys() -> list[bytes]:
             try:
                 keys.append(old_key.encode())
             except Exception:
-                print(f"WARNING: Invalid old encryption key format, skipping: {old_key[:20]}...")
+                logger.warning(f"WARNING: Invalid old encryption key format, skipping: {old_key[:20]}...")
 
     return keys
 
@@ -100,7 +103,7 @@ def _ensure_ciphers_initialized():
             key = Fernet.generate_key()
             _fernet = Fernet(key)
             _multi_fernet = MultiFernet([_fernet])
-            print(f"WARNING: Using generated encryption key: {key.decode()}")
+            logger.warning(f"WARNING: Using generated encryption key: {key.decode()}")
 
 def encrypt_api_key(api_key: str) -> str:
     """

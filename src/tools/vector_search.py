@@ -1,5 +1,6 @@
 """Vector Search Tool — semantic search over Pinecone."""
 
+import logging
 from typing import Any
 
 from langchain_core.tools import StructuredTool
@@ -12,6 +13,8 @@ from src.tools.pinecone_helpers import (
     load_pinecone_index,
     query_pinecone,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def create_vector_search_tool(
@@ -46,7 +49,7 @@ async def create_vector_search_tool(
                 "index": index_name,
             }
         except Exception as exc:
-            print(f"[VECTOR SEARCH] Error: {exc}")
+            logger.error(f"[VECTOR SEARCH] Error: {exc}")
             return {"error": str(exc)}
 
     class SearchQuery(BaseModel):

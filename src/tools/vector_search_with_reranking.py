@@ -1,5 +1,6 @@
 """Vector Search with Re-ranking Tool — two-stage retrieval over Pinecone."""
 
+import logging
 import os
 from typing import Any
 
@@ -13,6 +14,8 @@ from src.tools.pinecone_helpers import (
     load_pinecone_index,
     query_pinecone,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def create_vector_search_with_reranking_tool(
@@ -85,7 +88,7 @@ async def create_vector_search_with_reranking_tool(
                 "final_results": len(formatted),
             }
         except Exception as exc:
-            print(f"[VECTOR SEARCH RERANK] Error: {exc}")
+            logger.error(f"[VECTOR SEARCH RERANK] Error: {exc}")
             return {"error": str(exc)}
 
     class SearchWithRerankQuery(BaseModel):
@@ -115,10 +118,10 @@ async def _call_reranker(base_url: str, query: str, documents: list, auth_token:
             session.post(endpoint, json={"query": query, "documents": documents}, headers=headers) as resp,
         ):
             if resp.status != 200:
-                print(f"[VECTOR SEARCH RERANK] Reranker API error ({resp.status})")
+                logger.error(f"[VECTOR SEARCH RERANK] Reranker API error ({resp.status})")
                 return None
             result = await resp.json()
             return result.get("results", [])
     except Exception as exc:
-        print(f"[VECTOR SEARCH RERANK] Reranker call failed: {exc}")
+        logger.error(f"[VECTOR SEARCH RERANK] Reranker call failed: {exc}")
         return None

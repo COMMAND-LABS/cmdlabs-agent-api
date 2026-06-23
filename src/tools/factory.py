@@ -3,11 +3,14 @@ Tool Factory
 
 Dynamically creates LangChain StructuredTool instances from a v4 agent config.
 """
+import logging
 from typing import Any
 
 from langchain_core.tools import StructuredTool
 
 from .registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_tool_configs(agent_config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -26,13 +29,13 @@ async def _build_tool(
     tool_type = tool_config.get("type")
 
     if not tool_type:
-        print(f"[TOOL FACTORY] Error: tool config missing 'type' field: {tool_config}")
+        logger.error(f"[TOOL FACTORY] Error: tool config missing 'type' field: {tool_config}")
         return None
 
     builder = ToolRegistry.get_builder(tool_type)
     if not builder:
-        print(f"[TOOL FACTORY] Warning: unknown tool type '{tool_type}'. "
-              f"Registered: {ToolRegistry.list_types()}")
+        logger.warning(f"[TOOL FACTORY] Warning: unknown tool type '{tool_type}'. "
+                       f"Registered: {ToolRegistry.list_types()}")
         return None
 
     try:
@@ -44,9 +47,7 @@ async def _build_tool(
             **kwargs
         )
     except Exception as e:
-        import traceback
-        print(f"[TOOL FACTORY] Error building tool '{tool_type}': {e}")
-        traceback.print_exc()
+        logger.exception(f"[TOOL FACTORY] Error building tool '{tool_type}': {e}")
         return None
 
 
@@ -77,5 +78,5 @@ async def create_tools_from_agent_config(
         if tool:
             tools.append(tool)
 
-    print(f"[TOOL FACTORY] {len(tools)}/{len(tool_configs)} tool(s) built.")
+    logger.info(f"[TOOL FACTORY] {len(tools)}/{len(tool_configs)} tool(s) built.")
     return tools

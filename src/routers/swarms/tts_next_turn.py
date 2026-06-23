@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+import logging
 from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request
@@ -16,6 +17,8 @@ from src.routers.swarms.langgraph_schemas import (
 )
 from src.routers.swarms.turn_context import prepare_tts_turn_context
 from src.routers.swarms.turn_engine import execute_turn, stream_turn
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -48,9 +51,7 @@ async def _stream_tts_turn_generator(
         detail = e.detail if isinstance(e.detail, str) else json.dumps(e.detail)
         yield _sse_error(f"http_{e.status_code}", detail)
     except Exception as e:
-        import traceback
-
-        traceback.print_exc()
+        logger.exception(f"[TTS NEXT TURN] Unhandled error during turn stream: {e!s}")
         if slog:
             with contextlib.suppress(Exception):
                 slog.log_error("tts_next_turn_stream", e)

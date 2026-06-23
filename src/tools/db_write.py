@@ -4,6 +4,7 @@ Database Write Tool
 Provides write access to external database tables via stored credentials.
 Allows agents to insert records into user-configured databases.
 """
+import logging
 from typing import Any, Optional, TypedDict
 
 from langchain_core.tools import StructuredTool
@@ -14,6 +15,8 @@ from sqlalchemy.pool import NullPool
 
 from .db_read import get_connection_string, serialize_value
 from .exceptions import CredentialError
+
+logger = logging.getLogger(__name__)
 
 
 # Type definitions for database write results
@@ -84,9 +87,9 @@ async def create_db_write_tool(
 
     # Get chat_session_id from kwargs (passed by stream.py)
     chat_session_id = kwargs.get('chat_session_id')
-    print(f"[DB WRITE TOOL] 🔍 kwargs received: {list(kwargs.keys())}")
-    print(f"[DB WRITE TOOL] 🔍 chat_session_id from kwargs: {chat_session_id}")
-    print(f"[DB WRITE TOOL] 🔍 injectChatSessionId config: {inject_chat_session_id}")
+    logger.debug(f"[DB WRITE TOOL] 🔍 kwargs received: {list(kwargs.keys())}")
+    logger.debug(f"[DB WRITE TOOL] 🔍 chat_session_id from kwargs: {chat_session_id}")
+    logger.debug(f"[DB WRITE TOOL] 🔍 injectChatSessionId config: {inject_chat_session_id}")
 
     # Validate required fields
     if not credential_id:
@@ -116,7 +119,7 @@ async def create_db_write_tool(
             poolclass=NullPool,  # No persistent pool - connections close after each use
             pool_pre_ping=True
         )
-        print(f"[DB WRITE TOOL] Created connection to external database for table: {table_name}")
+        logger.info(f"[DB WRITE TOOL] Created connection to external database for table: {table_name}")
     except Exception as e:
         raise CredentialError(
             f"Failed to connect to database using credential {credential_id}: {e}"
@@ -137,7 +140,7 @@ async def create_db_write_tool(
 
             # Get actual column names from the table
             table_columns = [col['name'] for col in inspector.get_columns(table_name)]
-            print(f"[DB WRITE TOOL] Table '{table_name}' columns: {table_columns}")
+            logger.debug(f"[DB WRITE TOOL] Table '{table_name}' columns: {table_columns}")
 
             # Validate allowed_columns exist in the table
             invalid_columns = [col for col in allowed_columns if col not in table_columns]
@@ -152,21 +155,17 @@ async def create_db_write_tool(
     except Exception as e:
         raise ValueError(f"Failed to validate table '{table_name}': {e}") from e
 
-    print(f"[DB WRITE TOOL] Tool 'db_table_write' ready for table: {table_name}")
-    print(f"[DB WRITE TOOL] Allowed columns: {allowed_columns}")
-    print(f"[DB WRITE TOOL] Required columns: {required_columns}")
-    print(f"[DB WRITE TOOL] Inject account_id: {inject_account_id}")
-    print(f"[DB WRITE TOOL] Inject chat_session_id: {inject_chat_session_id}")
+    logger.info(f"[DB WRITE TOOL] Tool 'db_table_write' ready for table: {table_name}")
+    logger.debug(f"[DB WRITE TOOL] Allowed columns: {allowed_columns}")
+    logger.debug(f"[DB WRITE TOOL] Required columns: {required_columns}")
+    logger.debug(f"[DB WRITE TOOL] Inject account_id: {inject_account_id}")
+    logger.debug(f"[DB WRITE TOOL] Inject chat_session_id: {inject_chat_session_id}")
 
     # Define the insert implementation that accepts **kwargs for flat schema
     async def insert_impl(**kwargs) -> DbWriteSuccess | DbWriteError:
         """Insert a record into the external database table."""
-        # DEBUG: Tool invocation
-        print(f"\n{'='*60}")
-        print("[DB WRITE TOOL] 🚀 TOOL INVOKED: db_table_write")
-        print(f"[DB WRITE TOOL] 📊 Table: {table_name}")
-        print(f"[DB WRITE TOOL] 📝 Input kwargs: {kwargs}")
-        print(f"{'='*60}\n")
+        logger.debug(f"[DB WRITE TOOL] 🚀 TOOL INVOKED: db_table_write on table {table_name}")
+        logger.debug(f"[DB WRITE TOOL] 📝 Input kwargs: {kwargs}")
 
         try:
             # Validate required columns are present
@@ -184,13 +183,13 @@ async def create_db_write_tool(
             # This ensures the record is associated with the authenticated user's account
             if inject_account_id:
                 filtered_data['account_id'] = account_id
-                print(f"[DB WRITE TOOL] 🔐 Auto-injected account_id: {account_id}")
+                logger.debug(f"[DB WRITE TOOL] 🔐 Auto-injected account_id: {account_id}")
 
             # Auto-inject chat_session_id if configured
             # This links the record to the chat session where it was created
             if inject_chat_session_id and chat_session_id:
                 filtered_data['chat_session_id'] = str(chat_session_id)
-                print(f"[DB WRITE TOOL] 🔐 Auto-injected chat_session_id: {chat_session_id}")
+                logger.debug(f"[DB WRITE TOOL] 🔐 Auto-injected chat_session_id: {chat_session_id}")
 
             if not filtered_data:
                 return {"error": "No valid columns provided. "
@@ -203,8 +202,8 @@ async def create_db_write_tool(
 
             query_sql = f'INSERT INTO "{table_name}" ({columns_sql}) VALUES ({placeholders}) RETURNING *'
 
-            print(f"[DB WRITE TOOL] 📡 Executing query: {query_sql}")
-            print(f"[DB WRITE TOOL] 📝 Parameters: {filtered_data}")
+            logger.debug(f"[DB WRITE TOOL] 📡 Executing query: {query_sql}")
+            logger.debug(f"[DB WRITE TOOL] 📝 Parameters: {filtered_data}")
 
             # Execute insert
             with external_engine.connect() as conn:
@@ -221,9 +220,8 @@ async def create_db_write_tool(
                     if col_name in allowed_columns or col_name == 'id':
                         inserted_data[col_name] = serialize_value(value)
 
-            print("[DB WRITE TOOL] ✅ Insert complete")
-            print(f"[DB WRITE TOOL] 🎯 Inserted: {inserted_data}")
-            print(f"{'='*60}\n")
+            logger.info("[DB WRITE TOOL] ✅ Insert complete")
+            logger.debug(f"[DB WRITE TOOL] 🎯 Inserted: {inserted_data}")
 
             return {
                 "success": True,
@@ -233,12 +231,7 @@ async def create_db_write_tool(
             }
 
         except Exception as e:
-            print("\n[DB WRITE TOOL] ❌❌❌ EXCEPTION CAUGHT ❌❌❌")
-            print(f"[DB WRITE TOOL] Error: {e}")
-            print(f"[DB WRITE TOOL] Type: {type(e).__name__}")
-            import traceback
-            traceback.print_exc()
-            print(f"{'='*60}\n")
+            logger.exception(f"[DB WRITE TOOL] ❌ Insert failed: {e}")
             return {"error": str(e)}
 
     # Dynamically create a Pydantic model with each column as a direct field
@@ -267,7 +260,7 @@ async def create_db_write_tool(
     required_str = f" Required fields: {required_columns}." if required_columns else ""
     InsertInput.__doc__ = f"Input schema for inserting a record into {table_name}.{required_str}"
 
-    print(f"[DB WRITE TOOL] Created dynamic schema with fields: {list(field_definitions.keys())}")
+    logger.debug(f"[DB WRITE TOOL] Created dynamic schema with fields: {list(field_definitions.keys())}")
 
     tool_name_suffix = table_name.lower().replace(" ", "_")
     unique_tool_name = f"db_table_write_{tool_name_suffix}"

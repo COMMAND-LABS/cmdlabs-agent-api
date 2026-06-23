@@ -5,6 +5,7 @@ so that ``vector_search`` and ``vector_search_with_reranking`` avoid
 duplicating ~100 lines of identical setup and query code.
 """
 
+import logging
 import os
 from typing import Any
 
@@ -14,6 +15,8 @@ from sqlalchemy.orm import Session
 from src.db.models import Credential
 from src.db.service_name import ServiceName
 from src.routers.credentials.encryption import get_credential_value
+
+logger = logging.getLogger(__name__)
 
 
 def load_pinecone_index(
@@ -31,11 +34,11 @@ def load_pinecone_index(
     namespace = tool_config.get("namespace")
 
     if not all([provider, index_name, namespace]):
-        print(f"[VECTOR SEARCH] Missing required fields: provider={provider}, index={index_name}, namespace={namespace}")
+        logger.warning(f"[VECTOR SEARCH] Missing required fields: provider={provider}, index={index_name}, namespace={namespace}")
         return None
 
     if provider != "pinecone":
-        print(f"[VECTOR SEARCH] Unsupported provider: {provider}")
+        logger.warning(f"[VECTOR SEARCH] Unsupported provider: {provider}")
         return None
 
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
@@ -46,13 +49,13 @@ def load_pinecone_index(
     ).first()
 
     if not credential:
-        print(f"[VECTOR SEARCH] No Pinecone API key found for account {credential_account_id}")
+        logger.warning(f"[VECTOR SEARCH] No Pinecone API key found for account {credential_account_id}")
         return None
 
     try:
         pinecone_api_key = get_credential_value(credential, "api_key")
     except Exception as exc:
-        print(f"[VECTOR SEARCH] Failed to decrypt Pinecone API key: {exc}")
+        logger.error(f"[VECTOR SEARCH] Failed to decrypt Pinecone API key: {exc}")
         return None
 
     from pinecone import Pinecone
@@ -75,12 +78,12 @@ async def generate_embedding(query: str, auth_token: str | None = None) -> list[
             async with session.post(url, json={"input": query}, headers=headers) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    print(f"[VECTOR SEARCH] Embeddings API error ({response.status}): {error_text}")
+                    logger.error(f"[VECTOR SEARCH] Embeddings API error ({response.status}): {error_text}")
                     return None
                 result = await response.json()
                 return result["embedding"]
         except aiohttp.ClientError as exc:
-            print(f"[VECTOR SEARCH] Error generating embedding: {exc}")
+            logger.error(f"[VECTOR SEARCH] Error generating embedding: {exc}")
             return None
 
 
