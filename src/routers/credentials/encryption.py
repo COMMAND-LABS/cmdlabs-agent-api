@@ -105,49 +105,6 @@ def _ensure_ciphers_initialized():
             _multi_fernet = MultiFernet([_fernet])
             logger.warning(f"WARNING: Using generated encryption key: {key.decode()}")
 
-def encrypt_api_key(api_key: str) -> str:
-    """
-    Encrypt an API key using Fernet symmetric encryption.
-
-    Args:
-        api_key: The plaintext API key to encrypt
-
-    Returns:
-        The encrypted API key as a base64-encoded string
-    """
-    if not api_key:
-        raise ValueError("API key cannot be empty")
-
-    _ensure_ciphers_initialized()
-    encrypted_bytes = _fernet.encrypt(api_key.encode())
-    return encrypted_bytes.decode()
-
-def decrypt_api_key(encrypted_api_key: str) -> str:
-    """
-    Decrypt an API key using Fernet symmetric encryption.
-    Tries multiple keys to support key rotation.
-
-    DEPRECATED: Use decrypt_credential_data() for new code.
-    Kept for backward compatibility during migration period.
-
-    Args:
-        encrypted_api_key: The encrypted API key as a base64-encoded string
-
-    Returns:
-        The decrypted plaintext API key
-    """
-    if not encrypted_api_key:
-        raise ValueError("Encrypted API key cannot be empty")
-
-    _ensure_ciphers_initialized()
-    try:
-        # MultiFernet tries all keys in order until one succeeds
-        decrypted_bytes = _multi_fernet.decrypt(encrypted_api_key.encode())
-        return decrypted_bytes.decode()
-    except Exception as e:
-        raise ValueError(f"Failed to decrypt API key: {e!s}") from e
-
-
 # =============================================================================
 # NEW FLEXIBLE CREDENTIAL ENCRYPTION FUNCTIONS
 # =============================================================================
