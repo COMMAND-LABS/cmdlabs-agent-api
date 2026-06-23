@@ -1,5 +1,6 @@
 """TTS next-turn endpoints for JSON and SSE transport."""
 
+import contextlib
 import json
 from collections.abc import AsyncGenerator
 
@@ -42,10 +43,8 @@ async def _stream_tts_turn_generator(
             yield _sse(event.event, event.data)
     except HTTPException as e:
         if slog:
-            try:
+            with contextlib.suppress(Exception):
                 slog.log_error("tts_next_turn_stream", e)
-            except Exception:
-                pass
         detail = e.detail if isinstance(e.detail, str) else json.dumps(e.detail)
         yield _sse_error(f"http_{e.status_code}", detail)
     except Exception as e:
@@ -53,10 +52,8 @@ async def _stream_tts_turn_generator(
 
         traceback.print_exc()
         if slog:
-            try:
+            with contextlib.suppress(Exception):
                 slog.log_error("tts_next_turn_stream", e)
-            except Exception:
-                pass
         yield _sse_error("internal_server_error", str(e))
 
 

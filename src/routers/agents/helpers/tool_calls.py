@@ -105,14 +105,14 @@ def _format_vector_search(
 
 def _format_search_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Format search results according to v2 schema."""
-    formatted = []
-    for result in results:
-        formatted.append({
+    return [
+        {
             "id": result.get("id", ""),
             "score": result.get("score", 0.0),
-            "metadata": result.get("metadata", {})
-        })
-    return formatted
+            "metadata": result.get("metadata", {}),
+        }
+        for result in results
+    ]
 
 
 def _format_db_table_read(

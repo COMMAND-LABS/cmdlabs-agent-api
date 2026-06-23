@@ -4,6 +4,7 @@ Shared across agents and swarms routers to handle SSL/connection resets
 that occur intermittently with Supabase poolers and Cloud Run cold starts.
 """
 
+import contextlib
 import time
 
 from sqlalchemy.exc import OperationalError
@@ -29,10 +30,8 @@ def db_retry_once(db, label: str, fn):
         if not is_transient_db_error(exc):
             raise
         print(f"[DB RETRY] Transient error during {label}; retrying once...")
-        try:
+        with contextlib.suppress(Exception):
             db.rollback()
-        except Exception:
-            pass
         db.close()
         time.sleep(0.5)
         return fn()

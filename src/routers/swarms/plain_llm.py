@@ -44,10 +44,11 @@ def _anthropic_payload(messages: list[dict[str, str]]) -> tuple[str, list[dict[s
 
 
 def _extract_anthropic_text(response) -> str:
-    parts: list[str] = []
-    for block in getattr(response, "content", []):
-        if getattr(block, "type", "") == "text":
-            parts.append(getattr(block, "text", ""))
+    parts = [
+        getattr(block, "text", "")
+        for block in getattr(response, "content", [])
+        if getattr(block, "type", "") == "text"
+    ]
     return "".join(parts).strip()
 
 

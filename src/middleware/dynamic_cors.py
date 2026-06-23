@@ -39,10 +39,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
         # Check X-API-Key header
         api_key = request.headers.get("X-API-Key", "").strip()
-        if api_key and api_key.startswith("kalygo_"):
-            return True
-
-        return False
+        return bool(api_key and api_key.startswith("kalygo_"))
 
     def _normalize_origin(self, origin: str) -> str:
         """Normalize origin by removing trailing slashes."""
@@ -72,9 +69,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             if debug:
                 print(f"[CORS] {request.method} from origin: {origin}, has_api_key: {has_api_key}, is_allowed: {is_allowed}")
                 print(f"[CORS] Request URL: {request_url}, X-Forwarded-Proto: {forwarded_proto}, X-Forwarded-Host: {forwarded_host}")
-            if not is_allowed and not has_api_key:
-                if debug:
-                    print(f"[CORS] Allowed origins: {self.allowed_origins}")
+            if not is_allowed and not has_api_key and debug:
+                print(f"[CORS] Allowed origins: {self.allowed_origins}")
 
         # Handle preflight OPTIONS requests
         if request.method == "OPTIONS":
@@ -132,14 +128,13 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         # This prevents mixed content errors when FastAPI redirects
         if response.status_code in (301, 302, 303, 307, 308):
             location = response.headers.get("Location", "")
-            if location and forwarded_proto == "https":
-                # If we have an HTTP redirect but the request came via HTTPS, fix it
-                if location.startswith("http://"):
-                    # Replace http:// with https:// in redirect location
-                    fixed_location = location.replace("http://", "https://", 1)
-                    response.headers["Location"] = fixed_location
-                    if debug:
-                        print(f"[CORS] Fixed redirect URL: {location} -> {fixed_location}")
+            # If we have an HTTP redirect but the request came via HTTPS, fix it
+            if location and forwarded_proto == "https" and location.startswith("http://"):
+                # Replace http:// with https:// in redirect location
+                fixed_location = location.replace("http://", "https://", 1)
+                response.headers["Location"] = fixed_location
+                if debug:
+                    print(f"[CORS] Fixed redirect URL: {location} -> {fixed_location}")
 
         # Add CORS headers to response (including redirect responses)
         if has_api_key:

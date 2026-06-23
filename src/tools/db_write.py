@@ -120,7 +120,7 @@ async def create_db_write_tool(
     except Exception as e:
         raise CredentialError(
             f"Failed to connect to database using credential {credential_id}: {e}"
-        )
+        ) from e
 
     # Validate the table exists and get its columns
     try:
@@ -150,7 +150,7 @@ async def create_db_write_tool(
     except (CredentialError, ValueError):
         raise
     except Exception as e:
-        raise ValueError(f"Failed to validate table '{table_name}': {e}")
+        raise ValueError(f"Failed to validate table '{table_name}': {e}") from e
 
     print(f"[DB WRITE TOOL] Tool 'db_table_write' ready for table: {table_name}")
     print(f"[DB WRITE TOOL] Allowed columns: {allowed_columns}")
@@ -216,7 +216,7 @@ async def create_db_write_tool(
             # Format the inserted row
             inserted_data = {}
             if inserted_row:
-                for col_name, value in zip(column_names, inserted_row):
+                for col_name, value in zip(column_names, inserted_row, strict=False):
                     # Only return allowed columns in the response
                     if col_name in allowed_columns or col_name == 'id':
                         inserted_data[col_name] = serialize_value(value)

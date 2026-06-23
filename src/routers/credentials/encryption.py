@@ -142,7 +142,7 @@ def decrypt_api_key(encrypted_api_key: str) -> str:
         decrypted_bytes = _multi_fernet.decrypt(encrypted_api_key.encode())
         return decrypted_bytes.decode()
     except Exception as e:
-        raise ValueError(f"Failed to decrypt API key: {e!s}")
+        raise ValueError(f"Failed to decrypt API key: {e!s}") from e
 
 
 # =============================================================================
@@ -181,7 +181,7 @@ def encrypt_credential_data(data: dict[str, Any]) -> str:
         encrypted_bytes = _fernet.encrypt(json_str.encode())
         return encrypted_bytes.decode()
     except (TypeError, json.JSONDecodeError) as e:
-        raise ValueError(f"Failed to serialize credential data: {e!s}")
+        raise ValueError(f"Failed to serialize credential data: {e!s}") from e
 
 
 def decrypt_credential_data(encrypted_data: str) -> dict[str, Any]:
@@ -209,9 +209,9 @@ def decrypt_credential_data(encrypted_data: str) -> dict[str, Any]:
         json_str = decrypted_bytes.decode()
         return json.loads(json_str)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse decrypted credential data as JSON: {e!s}")
+        raise ValueError(f"Failed to parse decrypted credential data as JSON: {e!s}") from e
     except Exception as e:
-        raise ValueError(f"Failed to decrypt credential data: {e!s}")
+        raise ValueError(f"Failed to decrypt credential data: {e!s}") from e
 
 
 def get_credential_value(credential, key: str = "api_key") -> str:

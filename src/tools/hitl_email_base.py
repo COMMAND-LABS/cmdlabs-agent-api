@@ -43,7 +43,7 @@ def verify_credential(
     try:
         data = decrypt_credential_data(credential.encrypted_data)
     except Exception as exc:
-        raise CredentialError(f"Failed to decrypt credential {credential_id}: {exc}")
+        raise CredentialError(f"Failed to decrypt credential {credential_id}: {exc}") from exc
 
     missing = [k for k in required_fields if not data.get(k)]
     if missing:

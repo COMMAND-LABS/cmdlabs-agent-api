@@ -110,13 +110,15 @@ async def _call_reranker(base_url: str, query: str, documents: list, auth_token:
 
     endpoint = f"{base_url.rstrip('/')}/huggingface/rerank"
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json={"query": query, "documents": documents}, headers=headers) as resp:
-                if resp.status != 200:
-                    print(f"[VECTOR SEARCH RERANK] Reranker API error ({resp.status})")
-                    return None
-                result = await resp.json()
-                return result.get("results", [])
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(endpoint, json={"query": query, "documents": documents}, headers=headers) as resp,
+        ):
+            if resp.status != 200:
+                print(f"[VECTOR SEARCH RERANK] Reranker API error ({resp.status})")
+                return None
+            result = await resp.json()
+            return result.get("results", [])
     except Exception as exc:
         print(f"[VECTOR SEARCH RERANK] Reranker call failed: {exc}")
         return None

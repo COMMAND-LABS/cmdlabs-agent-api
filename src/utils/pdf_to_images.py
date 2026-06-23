@@ -180,14 +180,16 @@ def _build_vision_message(
             "text": f"[PDF Document{filename_str} - {page_count} page{'s' if page_count != 1 else ''}]"
         })
 
-        for img_base64 in images:
-            content.append({
+        content.extend(
+            {
                 "type": "image_url",
                 "image_url": {
                     "url": f"data:image/png;base64,{img_base64}",
-                    "detail": "high"
-                }
-            })
+                    "detail": "high",
+                },
+            }
+            for img_base64 in images
+        )
     except Exception as e:
         content.append({
             "type": "text",

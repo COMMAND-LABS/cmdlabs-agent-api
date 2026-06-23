@@ -164,7 +164,7 @@ async def prepare_agent_context(
         try:
             credentials[provider] = get_credential_value(credential, "api_key")
         except Exception as exc:
-            raise AgentSetupError("Failed to retrieve API key", str(exc))
+            raise AgentSetupError("Failed to retrieve API key", str(exc)) from exc
 
     # --- LLM ---
     try:
@@ -175,13 +175,13 @@ async def prepare_agent_context(
             temperature=0,
         )
     except ValueError as exc:
-        raise AgentSetupError("LLM initialization failed", str(exc))
+        raise AgentSetupError("LLM initialization failed", str(exc)) from exc
 
     # --- Session ---
     try:
         session_uuid = uuid.UUID(session_id)
     except ValueError:
-        raise AgentSetupError("Invalid sessionId format", "The sessionId must be a valid UUID format.")
+        raise AgentSetupError("Invalid sessionId format", "The sessionId must be a valid UUID format.") from None
 
     session = db_retry_once(
         db, "load chat session",
@@ -203,7 +203,7 @@ async def prepare_agent_context(
             db.refresh(session)
         except Exception as exc:
             db.rollback()
-            raise AgentSetupError("Failed to create session", f"Could not create chat session: {exc}")
+            raise AgentSetupError("Failed to create session", f"Could not create chat session: {exc}") from exc
 
     # --- Contact scope (fail closed) ---
     # The session<->contact binding is the server-trusted scope. If the agent
@@ -241,9 +241,9 @@ async def prepare_agent_context(
             contact_id=contact_id,
         )
     except CredentialError as exc:
-        raise AgentSetupError("Tool configuration error", str(exc))
+        raise AgentSetupError("Tool configuration error", str(exc)) from exc
     except ValueError as exc:
-        raise AgentSetupError("Invalid tool configuration", str(exc))
+        raise AgentSetupError("Invalid tool configuration", str(exc)) from exc
 
     # --- Prompt template + agent ---
     if tools:

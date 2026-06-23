@@ -39,9 +39,7 @@ def _is_name_match(label: str, agent_name: str) -> bool:
         return True
     if len(normalized_label) >= 6 and normalized_label in normalized_agent:
         return True
-    if len(normalized_agent) >= 6 and normalized_agent in normalized_label:
-        return True
-    return False
+    return bool(len(normalized_agent) >= 6 and normalized_agent in normalized_label)
 
 
 def _strip_self_label_prefix(content: str, agent_name: str) -> str:

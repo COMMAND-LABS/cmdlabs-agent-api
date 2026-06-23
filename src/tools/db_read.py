@@ -100,7 +100,7 @@ def get_connection_string(credential_id: int, account_id: int, db: Session) -> s
     except CredentialError:
         raise
     except Exception as e:
-        raise CredentialError(f"Failed to decrypt credential {credential_id}: {e}")
+        raise CredentialError(f"Failed to decrypt credential {credential_id}: {e}") from e
 
 
 async def create_db_read_tool(
@@ -173,7 +173,7 @@ async def create_db_read_tool(
     except Exception as e:
         raise CredentialError(
             f"Failed to connect to database using credential {credential_id}: {e}"
-        )
+        ) from e
 
     # Validate the table exists and get its columns
     try:
@@ -209,7 +209,7 @@ async def create_db_read_tool(
     except (CredentialError, ValueError):
         raise
     except Exception as e:
-        raise ValueError(f"Failed to validate table '{table_name}': {e}")
+        raise ValueError(f"Failed to validate table '{table_name}': {e}") from e
 
     print(f"[DB READ TOOL] Tool 'db_table_read' ready for table: {table_name} (columns: {selected_columns})")
 
@@ -274,7 +274,7 @@ async def create_db_read_tool(
             formatted_results = []
             for row in rows:
                 row_data = {}
-                for col_name, value in zip(column_names, row):
+                for col_name, value in zip(column_names, row, strict=False):
                     row_data[col_name] = serialize_value(value)
                 formatted_results.append({"data": row_data})
 

@@ -149,7 +149,4 @@ def test_signed_turn_state_rejects_stale_counts():
 
 
 async def _collect_stream_events(context: PreparedTurnContext):
-    events = []
-    async for event in stream_turn(context):
-        events.append(event)
-    return events
+    return [event async for event in stream_turn(context)]

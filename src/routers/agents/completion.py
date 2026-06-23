@@ -49,7 +49,7 @@ async def agent_completion(
             pdf_use_vision=request_body.pdfUseVision or False,
         )
     except AgentSetupError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.detail) from exc
 
     try:
         tool_calls = []
@@ -95,4 +95,4 @@ async def agent_completion(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Completion failed: {e!s}",
-        )
+        ) from e

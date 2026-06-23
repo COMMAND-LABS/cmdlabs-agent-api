@@ -53,14 +53,14 @@ async def get_current_user(request: Request):
         return {'email': email, 'id': int(account_id)}
     except JWTError as e:
         print(f'--- JWT Error: {e!s} ---')
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}')
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}') from e
     except HTTPException:
         raise
     except Exception as e:
         print(f'--- Unexpected error in get_current_user: {e!s} ---')
         import traceback
         print(f'--- Traceback: {traceback.format_exc()} ---')
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}')
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}') from e
 
 jwt_dependency = Annotated[dict, Depends(get_current_user)]
 

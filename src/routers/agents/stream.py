@@ -29,11 +29,11 @@ callbacks = get_langsmith_callbacks("dynamic-agent")
 
 async def generator(
     agent_id: int | None = None,
-    session_id: str = None,
-    prompt: str = None,
+    session_id: str | None = None,
+    prompt: str | None = None,
     db=None,
-    auth: dict = None,
-    request: Request = None,
+    auth: dict | None = None,
+    request: Request | None = None,
     pdf_base64: str | None = None,
     pdf_filename: str | None = None,
     pdf_use_vision: bool = False,
@@ -164,8 +164,7 @@ async def _stream_simple_chat(ctx: AgentContext):
             messages = [
                 ("system", ctx.prompt_template.messages[0].prompt.template),
             ]
-            for msg in ctx.message_history.messages:
-                messages.append(msg)
+            messages.extend(ctx.message_history.messages)
             messages.append(ctx.agent_input)
             formatted_input = messages
 

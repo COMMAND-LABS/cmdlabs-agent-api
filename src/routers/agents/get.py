@@ -65,10 +65,10 @@ async def get_agent(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid agent ID: {e!s}",
-        )
+        ) from e
     except Exception as e:
         print(f"[GET AGENT] Error retrieving agent {agent_id}: {e!s}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while retrieving agent: {e!s}",
-        )
+        ) from e
