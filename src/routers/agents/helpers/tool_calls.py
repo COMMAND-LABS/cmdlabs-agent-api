@@ -62,8 +62,6 @@ def format_tool_call(
         "vector_search_with_reranking": lambda n, i, o: _format_vector_search(n, i, o, "vectorSearchWithReranking"),
         "send_txt_email_with_ses": _format_send_txt_email,
         "send_html_email_with_ses": _format_send_html_email,
-        "send_txt_email_with_google_oauth": _format_send_txt_email,
-        "send_txt_email_with_google_smtp": _format_send_txt_email,
     }
 
     formatter = _FORMATTERS.get(tool_name)

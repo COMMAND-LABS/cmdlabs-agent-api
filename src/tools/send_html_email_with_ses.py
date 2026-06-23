@@ -7,20 +7,15 @@ Fallback: raw HTML when no suitable template exists.
 import json
 import logging
 import re
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from src.db.models import EmailTemplate, PendingToolApproval
+from src.db.models import EmailTemplate
 from src.tools.exceptions import CredentialError
-from src.tools.hitl_email_base import (
-    APPROVAL_TTL_MINUTES,
-    HITL_SENTINEL_KEY,
-    verify_credential,
-)
+from src.tools.hitl_email_base import queue_tool_approval, verify_credential
 
 logger = logging.getLogger(__name__)
 
@@ -173,48 +168,22 @@ async def create_send_html_email_with_ses_tool(
         )
         logger.debug(f"[SEND HTML EMAIL TOOL]   HTML bytes: {len(html_body or '')}")
 
-        expires_at = datetime.now(UTC) + timedelta(minutes=APPROVAL_TTL_MINUTES)
-
-        approval_db: Session = SessionLocal()
-        try:
-            approval = PendingToolApproval(
-                account_id=credential_account_id,
-                agent_id=agent_id,
-                chat_session_id=chat_session_id,
-                tool_type="sendHtmlEmailWithSes",
-                status="pending",
-                payload={
-                    "credential_id": credential_id,
-                    "to_email": to_email,
-                    "subject": subject,
-                    "html_body": html_body,
-                    # Template metadata stored for reference / audit
-                    "template_id": template_id,
-                    "template_name": template_name,
-                    "variables": merged_variables if merged_variables else None,
-                },
-                expires_at=expires_at,
-            )
-            approval_db.add(approval)
-            approval_db.commit()
-            approval_db.refresh(approval)
-            approval_id = approval.id
-            logger.info(f"[SEND HTML EMAIL TOOL] ✅ PendingToolApproval id={approval_id}")
-        except Exception as e:
-            approval_db.rollback()
-            logger.exception(f"[SEND HTML EMAIL TOOL] ❌ Failed to queue email for approval: {e}")
-            return json.dumps({
-                "success": False,
-                "error": f"Failed to queue email for approval: {e}",
-            })
-        finally:
-            approval_db.close()
-
-        return json.dumps({
-            HITL_SENTINEL_KEY: True,
-            "approval_id": approval_id,
-            "tool_type": "sendHtmlEmailWithSes",
-            "preview": {
+        return await queue_tool_approval(
+            account_id=credential_account_id,
+            agent_id=agent_id,
+            chat_session_id=chat_session_id,
+            tool_type="sendHtmlEmailWithSes",
+            payload={
+                "credential_id": credential_id,
+                "to_email": to_email,
+                "subject": subject,
+                "html_body": html_body,
+                # Template metadata stored for reference / audit
+                "template_id": template_id,
+                "template_name": template_name,
+                "variables": merged_variables if merged_variables else None,
+            },
+            preview={
                 "from_email": from_email,
                 "to_email": to_email,
                 "subject": subject,
@@ -222,12 +191,12 @@ async def create_send_html_email_with_ses_tool(
                 "template_name": template_name,
                 "variables": merged_variables if merged_variables else None,
             },
-            "message": (
+            message=(
                 f"{'Template ' + repr(template_name) + ' email' if template_name else 'HTML email'} "
                 f"to {to_email} has been queued for human review. "
                 "It will be sent only after the user approves it."
             ),
-        })
+        )
 
     class SendHtmlEmailInput(BaseModel):
         to_email: str = Field(

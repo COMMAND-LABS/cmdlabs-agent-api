@@ -11,8 +11,6 @@ def test_all_expected_types_registered():
         "dbTableWrite",
         "sendTxtEmailWithSes",
         "sendHtmlEmailWithSes",
-        "sendTxtEmailWithGoogleOAuth",
-        "sendTxtEmailWithGoogleSmtp",
     ]
     registered = ToolRegistry.list_types()
     for t in expected:
