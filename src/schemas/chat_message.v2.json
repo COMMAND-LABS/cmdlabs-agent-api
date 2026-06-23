@@ -19,27 +19,17 @@
       "type": "string",
       "description": "The text content of the message."
     },
-    "agentName": {
-      "type": "string",
-      "description": "Name of the agent that produced this message (used in swarm/multi-agent flows)."
-    },
     "toolCalls": {
       "type": "array",
       "description": "Array of tool calls made during the generation of this message. Only present for AI messages. Each tool call has a different schema depending on the tool type.",
       "items": {
         "oneOf": [
-          {
-            "$ref": "#/$defs/vectorSearchToolCall"
-          },
-          {
-            "$ref": "#/$defs/vectorSearchWithRerankingToolCall"
-          },
-          {
-            "$ref": "#/$defs/dbTableReadToolCall"
-          },
-          {
-            "$ref": "#/$defs/dbTableWriteToolCall"
-          }
+          { "$ref": "#/$defs/vectorSearchToolCall" },
+          { "$ref": "#/$defs/vectorSearchWithRerankingToolCall" },
+          { "$ref": "#/$defs/dbTableReadToolCall" },
+          { "$ref": "#/$defs/dbTableWriteToolCall" },
+          { "$ref": "#/$defs/sendEmailToolCall" },
+          { "$ref": "#/$defs/customToolCall" }
         ],
         "description": "A tool call. The schema varies by tool type."
       },
@@ -234,6 +224,18 @@
           "type": "integer",
           "description": "Total number of chunks in the document",
           "minimum": 1
+        },
+        "storage_provider": {
+          "type": "string",
+          "description": "Object storage provider holding the original source document (e.g., 'gcs')"
+        },
+        "storage_bucket": {
+          "type": "string",
+          "description": "Storage bucket containing the original source document"
+        },
+        "storage_path": {
+          "type": "string",
+          "description": "Path / object key of the original source document within the bucket"
         }
       },
       "patternProperties": {
@@ -299,6 +301,18 @@
         "last_edited_at": {
           "type": "string",
           "description": "Last edit timestamp from CSV (optional)"
+        },
+        "storage_provider": {
+          "type": "string",
+          "description": "Object storage provider holding the original source document (e.g., 'gcs')"
+        },
+        "storage_bucket": {
+          "type": "string",
+          "description": "Storage bucket containing the original source document"
+        },
+        "storage_path": {
+          "type": "string",
+          "description": "Path / object key of the original source document within the bucket"
         }
       },
       "additionalProperties": false
@@ -428,6 +442,69 @@
               "description": "Error message if insert failed"
             }
           }
+        }
+      }
+    },
+    "sendEmailToolCall": {
+      "type": "object",
+      "description": "Tool call for sending an email (plain-text or HTML, via SES, Google OAuth, or Google SMTP)",
+      "additionalProperties": false,
+      "required": ["toolType", "toolName", "input", "output"],
+      "properties": {
+        "toolType": {
+          "type": "string",
+          "enum": ["sendTxtEmailWithSes", "sendHtmlEmailWithSes", "sendTxtEmailWithGoogleOAuth", "sendTxtEmailWithGoogleSmtp"],
+          "description": "The email tool variant"
+        },
+        "toolName": {
+          "type": "string",
+          "description": "The tool instance name"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "to": { "type": "string", "description": "Recipient email address" },
+            "subject": { "type": "string", "description": "Email subject line" },
+            "body": { "type": "string", "description": "Plain-text email body" },
+            "html_body": { "type": ["string", "null"], "description": "HTML email body (sendHtmlEmailWithSes)" },
+            "template_id": { "type": "integer", "description": "Email template ID (sendHtmlEmailWithSes)" },
+            "variables": { "type": "object", "description": "Template variables", "additionalProperties": true }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["success"],
+          "properties": {
+            "success": { "type": "boolean", "description": "Whether the send was successful" },
+            "messageId": { "type": ["string", "null"], "description": "SES/Gmail message ID" },
+            "error": { "type": ["string", "null"], "description": "Error message if send failed" }
+          }
+        }
+      }
+    },
+    "customToolCall": {
+      "type": "object",
+      "description": "Fallback for unrecognized or custom tool calls",
+      "additionalProperties": false,
+      "required": ["toolType", "toolName", "input", "output"],
+      "properties": {
+        "toolType": {
+          "type": "string",
+          "description": "The tool type identifier"
+        },
+        "toolName": {
+          "type": "string",
+          "description": "The tool instance name"
+        },
+        "input": {
+          "type": "object",
+          "description": "Tool input (shape varies)",
+          "additionalProperties": true
+        },
+        "output": {
+          "type": "object",
+          "description": "Tool output (shape varies)",
+          "additionalProperties": true
         }
       }
     }
