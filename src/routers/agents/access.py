@@ -14,11 +14,9 @@ An account can access an agent if **either**:
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy.orm import Session
 
-from src.db.models import Agent, AgentAccessGrant, AccessGroupMember
+from src.db.models import AccessGroupMember, Agent, AgentAccessGrant
 
 
 def can_access_agent(db: Session, account_id: int, agent_id: int) -> bool:
@@ -57,7 +55,7 @@ def load_agent_with_access_check(
     db: Session,
     account_id: int,
     agent_id: int,
-) -> Optional[Agent]:
+) -> Agent | None:
     """
     Load and return the agent if *account_id* has access, else ``None``.
 

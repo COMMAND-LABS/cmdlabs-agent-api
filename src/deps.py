@@ -1,13 +1,14 @@
-from typing import Annotated
-from sqlalchemy.orm import Session
-from fastapi import Depends, HTTPException, status
-from passlib.context import CryptContext
-from jose import jwt, JWTError
 import os
-from .db.database import SessionLocal
-from fastapi import Request
-from .db.models import ApiKey, Account, ApiKeyStatus
+from typing import Annotated
+
+from fastapi import Depends, HTTPException, Request, status
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from .db.database import SessionLocal
+from .db.models import Account, ApiKey, ApiKeyStatus
 
 SECRET_KEY = os.getenv('AUTH_SECRET_KEY')
 ALGORITHM = os.getenv('AUTH_ALGORITHM')
@@ -15,7 +16,7 @@ ALGORITHM = os.getenv('AUTH_ALGORITHM')
 def get_db():
     """
     Database session dependency.
-    
+
     Connection lifecycle behavior is controlled in src/db/database.py.
     For Cloud Run + Supabase pooler, this is typically NullPool or a small
     QueuePool with pre-ping/recycle.
@@ -32,35 +33,35 @@ bcrypt_context = CryptContext(schemes=["sha256_crypt"])
 async def get_current_user(request: Request):
     try:
         token = request.cookies.get("jwt")
-        
+
         if not token:
             print('--- No JWT token found in cookies ---')
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated - no JWT token found in cookies")
 
-        
+
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
         email: str | None = payload.get('sub')
         account_id: str = payload.get('id')
-        
+
         print(f'--- email (sub): {email} ---')
         print(f'--- account_id: {account_id} ---')
-        
+
         if email is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user - email not found in token')
-        
+
         return {'email': email, 'id': int(account_id)}
     except JWTError as e:
-        print(f'--- JWT Error: {str(e)} ---')
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {str(e)}')
+        print(f'--- JWT Error: {e!s} ---')
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}')
     except HTTPException:
         raise
     except Exception as e:
-        print(f'--- Unexpected error in get_current_user: {str(e)} ---')
+        print(f'--- Unexpected error in get_current_user: {e!s} ---')
         import traceback
         print(f'--- Traceback: {traceback.format_exc()} ---')
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {str(e)}')
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Could not validate user: {e!s}')
+
 jwt_dependency = Annotated[dict, Depends(get_current_user)]
 
 
@@ -87,29 +88,29 @@ async def get_current_user_or_api_key(
                 }
     except (JWTError, KeyError, ValueError):
         pass
-    
+
     # Try API key from headers
     api_key = None
-    
+
     # Check Authorization header: "Bearer kalygo_live_..."
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         api_key = auth_header.replace("Bearer ", "").strip()
-    
+
     # Also check X-API-Key header
     if not api_key:
         api_key = request.headers.get("X-API-Key", "").strip()
-    
+
     if api_key and api_key.startswith("kalygo_"):
         # Extract prefix for fast lookup
         key_prefix = api_key[:20] if len(api_key) >= 20 else api_key
-        
+
         # Query by prefix first (fast), then verify hash
         api_key_record = db.query(ApiKey).filter(
             ApiKey.key_prefix == key_prefix,
             ApiKey.status == ApiKeyStatus.ACTIVE
         ).first()
-        
+
         if api_key_record:
             # Verify the full key against hash
             from .utils.api_key_utils import verify_api_key
@@ -117,7 +118,7 @@ async def get_current_user_or_api_key(
                 # Update last_used_at
                 api_key_record.last_used_at = func.now()
                 db.commit()
-                
+
                 # Get account email
                 account = db.query(Account).filter(Account.id == api_key_record.account_id).first()
                 if account:
@@ -127,7 +128,7 @@ async def get_current_user_or_api_key(
                         'auth_type': 'api_key',
                         'api_key_id': api_key_record.id  # Useful for logging
                     }
-    
+
     # No valid auth found
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

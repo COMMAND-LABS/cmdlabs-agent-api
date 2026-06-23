@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
@@ -85,7 +85,7 @@ async def complete_request(
     model: str,
     api_key: str,
     request: LLMRequest,
-    session_logger: "SessionLogger | None" = None,
+    session_logger: SessionLogger | None = None,
 ) -> str:
     """Return a plain text completion for the given provider."""
     if provider == "openai":
@@ -137,7 +137,7 @@ async def stream_request(
     model: str,
     api_key: str,
     request: LLMRequest,
-    session_logger: "SessionLogger | None" = None,
+    session_logger: SessionLogger | None = None,
 ) -> AsyncGenerator[str, None]:
     """Yield text deltas from the given provider."""
     if provider == "openai":

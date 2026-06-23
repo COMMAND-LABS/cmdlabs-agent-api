@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from src.routers.swarms.plain_llm import complete_request, stream_request
 from src.routers.swarms.policy import (
@@ -12,8 +12,13 @@ from src.routers.swarms.policy import (
 )
 from src.routers.swarms.repository import persist_ai_message
 from src.routers.swarms.turn_state import encode_turn_state
-from src.routers.swarms.types import PreparedTurnContext, RouterDecision, StreamEvent, TurnResult, TurnState
-
+from src.routers.swarms.types import (
+    PreparedTurnContext,
+    RouterDecision,
+    StreamEvent,
+    TurnResult,
+    TurnState,
+)
 
 _MAX_RESPONSES_PER_TURN = 5
 _BRACKET_LABEL_PATTERN = re.compile(r"^\s*\[([^\]\n]{1,80})\]\s*")

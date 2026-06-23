@@ -1,27 +1,27 @@
 """Vector Search with Re-ranking Tool — two-stage retrieval over Pinecone."""
 
 import os
-from typing import Dict, Any, Optional
+from typing import Any
 
 import aiohttp
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from src.tools.pinecone_helpers import (
-    load_pinecone_index,
-    generate_embedding,
-    query_pinecone,
     format_matches,
+    generate_embedding,
+    load_pinecone_index,
+    query_pinecone,
 )
 
 
 async def create_vector_search_with_reranking_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Any,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs,
-) -> Optional[StructuredTool]:
+) -> StructuredTool | None:
     setup = load_pinecone_index(tool_config, account_id, db, **kwargs)
     if not setup:
         return None
@@ -35,7 +35,7 @@ async def create_vector_search_with_reranking_tool(
         query: str,
         top_k: int = top_k_default,
         top_n: int = top_n_default,
-    ) -> Dict:
+    ) -> dict:
         """Retrieve and rerank relevant documents from the knowledge base."""
         try:
             embedding = await generate_embedding(query, auth_token)
@@ -102,7 +102,7 @@ async def create_vector_search_with_reranking_tool(
     )
 
 
-async def _call_reranker(base_url: str, query: str, documents: list, auth_token: Optional[str]) -> Optional[list]:
+async def _call_reranker(base_url: str, query: str, documents: list, auth_token: str | None) -> list | None:
     """Call the reranker microservice. Returns the ranked results list or None on failure."""
     headers = {}
     if auth_token:

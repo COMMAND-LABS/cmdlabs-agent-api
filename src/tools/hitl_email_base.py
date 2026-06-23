@@ -6,8 +6,8 @@ at invocation time.  This module captures that shared logic.
 """
 
 import json
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -25,7 +25,7 @@ def verify_credential(
     credential_id: int,
     account_id: int,
     db: Session,
-    required_fields: List[str],
+    required_fields: list[str],
     provider_label: str,
 ) -> str:
     """Validate a credential and return its ``from_email`` value.
@@ -63,12 +63,12 @@ class _SendEmailInput(BaseModel):
 
 async def create_hitl_plain_email_tool(
     *,
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Session,
     tool_type: str,
     tool_name: str,
-    required_credential_fields: List[str],
+    required_credential_fields: list[str],
     provider_label: str,
     default_description: str,
     **kwargs,
@@ -87,14 +87,14 @@ async def create_hitl_plain_email_tool(
         credential_id, credential_account_id, db, required_credential_fields, provider_label,
     )
 
-    agent_id: Optional[int] = kwargs.get("agent_id")
-    chat_session_id: Optional[int] = kwargs.get("chat_session_id_pk")
+    agent_id: int | None = kwargs.get("agent_id")
+    chat_session_id: int | None = kwargs.get("chat_session_id_pk")
 
     from src.db.database import SessionLocal
 
     async def send_email_impl(to_email: str, subject: str, body: str) -> str:
         """Queue an email for human approval before sending."""
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
+        expires_at = datetime.now(UTC) + timedelta(minutes=APPROVAL_TTL_MINUTES)
 
         approval_db: Session = SessionLocal()
         try:

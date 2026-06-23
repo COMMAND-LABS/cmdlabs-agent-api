@@ -4,14 +4,14 @@ Server-Sent Events (SSE) helpers for agent completion.
 Provides consistent formatting for SSE events sent to the client.
 """
 import json
-from typing import Any, Optional, List, Dict
+from typing import Any
 
 
 def sse_event(
     event: str,
-    data: Optional[Any] = None,
-    tool_calls: Optional[List[Dict[str, Any]]] = None,
-    run_id: Optional[str] = None,
+    data: Any | None = None,
+    tool_calls: list[dict[str, Any]] | None = None,
+    run_id: str | None = None,
 ) -> str:
     """
     Create a JSON-encoded SSE event.
@@ -25,7 +25,7 @@ def sse_event(
     Returns:
         JSON string ready to be yielded in a StreamingResponse
     """
-    payload: Dict[str, Any] = {"event": event}
+    payload: dict[str, Any] = {"event": event}
 
     if data is not None:
         payload["data"] = data
@@ -42,11 +42,11 @@ def sse_event(
 def sse_error(error: str, message: str) -> str:
     """
     Create a JSON-encoded SSE error event.
-    
+
     Args:
         error: Short error type/code
         message: Human-readable error message
-        
+
     Returns:
         JSON string for an error event
     """

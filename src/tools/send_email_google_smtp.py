@@ -1,6 +1,7 @@
 """Send Plain-Text Email Tool via Gmail SMTP (App Password) — HITL variant."""
 
-from typing import Any, Dict, Optional
+from typing import Any
+
 from langchain_core.tools import StructuredTool
 from sqlalchemy.orm import Session
 
@@ -8,10 +9,10 @@ from src.tools.hitl_email_base import create_hitl_plain_email_tool
 
 
 async def create_send_email_google_smtp_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Session,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs,
 ) -> StructuredTool:
     return await create_hitl_plain_email_tool(

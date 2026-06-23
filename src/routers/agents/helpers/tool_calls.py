@@ -3,27 +3,27 @@ Tool call formatting helpers for agent completion.
 
 Handles formatting tool call data according to the chat_message.v2.json schema.
 """
-from typing import Dict, Any, Optional, List
 import ast
 import json as _json
+from typing import Any
 
 
 def format_tool_call(
     tool_name: str,
-    tool_input: Dict[str, Any],
+    tool_input: dict[str, Any],
     tool_output: Any
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Format a tool call according to the chat_message.v2.json schema.
-    
+
     Determines the tool type from the tool name and formats the input/output
     appropriately for each tool type.
-    
+
     Args:
         tool_name: The name of the tool that was executed
         tool_input: The input that was passed to the tool
         tool_output: The output returned by the tool
-        
+
     Returns:
         Formatted tool call dict, or None if the tool output is invalid
     """
@@ -48,12 +48,12 @@ def format_tool_call(
                     parsed = ast.literal_eval(tool_output)
                     tool_output = parsed if isinstance(parsed, dict) else {"result": tool_output}
                 except (ValueError, SyntaxError):
-                    print(f"[TOOL CALLS] Could not parse tool_output string; wrapping as result")
+                    print("[TOOL CALLS] Could not parse tool_output string; wrapping as result")
                     tool_output = {"result": tool_output}
         else:
             print(f"[TOOL CALLS] Normalizing non-dict/non-str tool_output (type: {type(tool_output).__name__})")
             tool_output = {"result": str(tool_output)}
-    
+
     _FORMATTERS = {
         "vector_search": lambda n, i, o: _format_vector_search(n, i, o, "vectorSearch"),
         "vector_search_with_reranking": lambda n, i, o: _format_vector_search(n, i, o, "vectorSearchWithReranking"),
@@ -76,17 +76,17 @@ def format_tool_call(
 
 def _format_vector_search(
     tool_name: str,
-    tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any],
+    tool_input: dict[str, Any],
+    tool_output: dict[str, Any],
     tool_type: str = "vectorSearch",
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Format vector search tool call. Returns None for error outputs."""
     if 'error' in tool_output and 'results' not in tool_output:
         return None
 
     results = _format_search_results(tool_output.get('results', []))
 
-    input_data: Dict[str, Any] = {"query": tool_input.get('query', '')}
+    input_data: dict[str, Any] = {"query": tool_input.get('query', '')}
     top_k = tool_input.get('top_k', tool_input.get('topK'))
     if top_k is not None:
         input_data["topK"] = int(top_k)
@@ -103,7 +103,7 @@ def _format_vector_search(
     }
 
 
-def _format_search_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _format_search_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Format search results according to v2 schema."""
     formatted = []
     for result in results:
@@ -117,9 +117,9 @@ def _format_search_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
 def _format_db_table_read(
     tool_name: str,
-    tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any]
-) -> Dict[str, Any]:
+    tool_input: dict[str, Any],
+    tool_output: dict[str, Any]
+) -> dict[str, Any]:
     """Format database table read tool call."""
     return {
         "toolType": "dbTableRead",
@@ -139,9 +139,9 @@ def _format_db_table_read(
 
 def _format_db_table_write(
     tool_name: str,
-    tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any]
-) -> Dict[str, Any]:
+    tool_input: dict[str, Any],
+    tool_output: dict[str, Any]
+) -> dict[str, Any]:
     """Format database table write tool call."""
     return {
         "toolType": "dbTableWrite",
@@ -161,9 +161,9 @@ def _format_db_table_write(
 
 def _format_send_txt_email(
     tool_name: str,
-    tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any],
-) -> Dict[str, Any]:
+    tool_input: dict[str, Any],
+    tool_output: dict[str, Any],
+) -> dict[str, Any]:
     """Format a send-plain-text-email tool call."""
     return {
         "toolType": "sendTxtEmailWithSes",
@@ -183,11 +183,11 @@ def _format_send_txt_email(
 
 def _format_send_html_email(
     tool_name: str,
-    tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any],
-) -> Dict[str, Any]:
+    tool_input: dict[str, Any],
+    tool_output: dict[str, Any],
+) -> dict[str, Any]:
     """Format a send-HTML-email tool call (template or raw-HTML mode)."""
-    inp: Dict[str, Any] = {
+    inp: dict[str, Any] = {
         "to": tool_input.get("to_email", tool_input.get("to", "")),
         "subject": tool_input.get("subject", ""),
         "html_body": tool_input.get("html_body") or None,
@@ -211,9 +211,9 @@ def _format_send_html_email(
 
 def _format_generic_tool(
     tool_name: str,
-    tool_input: Dict[str, Any],
-    tool_output: Dict[str, Any]
-) -> Dict[str, Any]:
+    tool_input: dict[str, Any],
+    tool_output: dict[str, Any]
+) -> dict[str, Any]:
     """Format generic/unknown tool call."""
     return {
         "toolType": "custom",

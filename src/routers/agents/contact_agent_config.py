@@ -17,7 +17,7 @@ Single source of truth for the contact-scoped tool type names lives here so
 the fail-closed guard, the registry, and this config cannot drift.
 """
 
-from typing import Any, Dict
+from typing import Any
 
 # Tool type strings. Must match the ToolRegistry registrations in
 # src/tools/__init__.py and the $defs in ai-api agent_config.v4.json.
@@ -30,7 +30,7 @@ CONTACT_SCOPED_TOOL_TYPES = frozenset(
 # {agent_name} variable on the override path).
 CONTACT_AGENT_NAME = "CRM Assistant"
 
-CONTACT_AGENT_CONFIG: Dict[str, Any] = {
+CONTACT_AGENT_CONFIG: dict[str, Any] = {
     "schema": "agent_config",
     "version": 4,
     "data": {
@@ -52,7 +52,7 @@ CONTACT_AGENT_CONFIG: Dict[str, Any] = {
 }
 
 
-def contact_session_required(config_data: Dict[str, Any]) -> bool:
+def contact_session_required(config_data: dict[str, Any]) -> bool:
     """True if the agent config declares any contact-scoped tool.
 
     Used by the fail-closed guard: if this is True but the chat session has no

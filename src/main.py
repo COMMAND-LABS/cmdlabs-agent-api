@@ -2,20 +2,19 @@
 Completion API - streaming LLM completion microservice.
 Exposes only the agent completion endpoint for independent scaling.
 """
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
-
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+
 from src.middleware.dynamic_cors import DynamicCORSMiddleware
 from src.ratelimit import limiter
-
 from src.routers import healthcheck, swarms
-from src.routers.agents.router import router as agents_router
 from src.routers.agents.contact_chat import router as contact_chat_router
+from src.routers.agents.router import router as agents_router
 
 load_dotenv()
 

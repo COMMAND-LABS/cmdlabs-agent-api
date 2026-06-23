@@ -1,50 +1,49 @@
 """Agent streaming completion endpoint (SSE)."""
 
 import json
-from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from src.ratelimit import limiter
 
-from src.deps import db_dependency, auth_dependency
 from src.core.schemas.ChatSessionPrompt import ChatSessionPrompt
-from src.utils.langsmith import get_langsmith_callbacks
+from src.deps import auth_dependency, db_dependency
+from src.ratelimit import limiter
 from src.routers.agents.context import (
     AgentContext,
     AgentSetupError,
-    prepare_agent_context,
-    persist_user_message,
     persist_ai_message,
+    persist_user_message,
+    prepare_agent_context,
 )
 from src.routers.agents.helpers import (
-    format_tool_call,
-    sse_event,
-    sse_error,
     EventType,
+    format_tool_call,
+    sse_error,
+    sse_event,
 )
+from src.utils.langsmith import get_langsmith_callbacks
 
 router = APIRouter()
 callbacks = get_langsmith_callbacks("dynamic-agent")
 
 
 async def generator(
-    agent_id: Optional[int] = None,
+    agent_id: int | None = None,
     session_id: str = None,
     prompt: str = None,
     db=None,
     auth: dict = None,
     request: Request = None,
-    pdf_base64: Optional[str] = None,
-    pdf_filename: Optional[str] = None,
+    pdf_base64: str | None = None,
+    pdf_filename: str | None = None,
     pdf_use_vision: bool = False,
-    image_base64: Optional[str] = None,
-    document_text: Optional[str] = None,
-    attachment_filename: Optional[str] = None,
-    attachment_content_type: Optional[str] = None,
-    gcs_bucket: Optional[str] = None,
-    gcs_file_path: Optional[str] = None,
-    agent_config_override: Optional[dict] = None,
+    image_base64: str | None = None,
+    document_text: str | None = None,
+    attachment_filename: str | None = None,
+    attachment_content_type: str | None = None,
+    gcs_bucket: str | None = None,
+    gcs_file_path: str | None = None,
+    agent_config_override: dict | None = None,
 ):
     try:
         ctx = await prepare_agent_context(

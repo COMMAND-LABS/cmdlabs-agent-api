@@ -7,9 +7,9 @@ Supports:
 - Google (gemini-2.0-flash, gemini-1.5-pro, etc.)
 - Ollama (llama3.2, mistral, etc.)
 """
-from typing import Dict, Any, Optional, Tuple
-from langchain_core.language_models.chat_models import BaseChatModel
+from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
 
 DEFAULT_MODEL_CONFIG = {
     "provider": "openai",
@@ -17,7 +17,7 @@ DEFAULT_MODEL_CONFIG = {
 }
 
 
-def get_model_config(agent_config: Dict[str, Any]) -> Dict[str, str]:
+def get_model_config(agent_config: dict[str, Any]) -> dict[str, str]:
     """
     Extract model configuration from a v4 agent config.
     Returns the configured model if present, otherwise the default.
@@ -33,55 +33,54 @@ def get_model_config(agent_config: Dict[str, Any]) -> Dict[str, str]:
 
 
 def create_llm(
-    model_config: Dict[str, str],
-    credentials: Dict[str, str],
+    model_config: dict[str, str],
+    credentials: dict[str, str],
     streaming: bool = True,
     temperature: float = 0,
-) -> Tuple[BaseChatModel, str]:
+) -> tuple[BaseChatModel, str]:
     """
     Create a LangChain LLM instance based on model configuration.
-    
+
     Args:
         model_config: Dict with 'provider' and 'model' keys
         credentials: Dict mapping provider names to API keys
                     e.g., {'openai': 'sk-...', 'anthropic': 'sk-ant-...'}
         streaming: Whether to enable streaming
         temperature: Model temperature (0-1)
-        
+
     Returns:
         Tuple of (LLM instance, provider name)
-        
+
     Raises:
         ValueError: If provider is not supported or credentials are missing
     """
     provider = model_config.get('provider', 'openai')
     model = model_config.get('model', 'gpt-4o-mini')
-    
+
     if provider == 'openai':
         return _create_openai_llm(model, credentials, streaming, temperature), provider
-    elif provider == 'anthropic':
+    if provider == 'anthropic':
         return _create_anthropic_llm(model, credentials, streaming, temperature), provider
-    elif provider == 'google':
+    if provider == 'google':
         return _create_google_llm(model, credentials, streaming, temperature), provider
-    elif provider == 'ollama':
+    if provider == 'ollama':
         return _create_ollama_llm(model, streaming, temperature), provider
-    else:
-        raise ValueError(f"Unsupported LLM provider: {provider}")
+    raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
 def _create_openai_llm(
     model: str,
-    credentials: Dict[str, str],
+    credentials: dict[str, str],
     streaming: bool,
     temperature: float
 ) -> BaseChatModel:
     """Create OpenAI LLM instance."""
     from langchain_openai import ChatOpenAI
-    
+
     api_key = credentials.get('openai')
     if not api_key:
         raise ValueError("OpenAI API key not found. Please add your OpenAI API key in account settings.")
-    
+
     return ChatOpenAI(
         model=model,
         api_key=api_key,
@@ -94,17 +93,17 @@ def _create_openai_llm(
 
 def _create_anthropic_llm(
     model: str,
-    credentials: Dict[str, str],
+    credentials: dict[str, str],
     streaming: bool,
     temperature: float
 ) -> BaseChatModel:
     """Create Anthropic LLM instance."""
     from langchain_anthropic import ChatAnthropic
-    
+
     api_key = credentials.get('anthropic')
     if not api_key:
         raise ValueError("Anthropic API key not found. Please add your Anthropic API key in account settings.")
-    
+
     return ChatAnthropic(
         model=model,
         api_key=api_key,
@@ -115,7 +114,7 @@ def _create_anthropic_llm(
 
 def _create_google_llm(
     model: str,
-    credentials: Dict[str, str],
+    credentials: dict[str, str],
     streaming: bool,
     temperature: float
 ) -> BaseChatModel:
@@ -140,12 +139,13 @@ def _create_ollama_llm(
     temperature: float
 ) -> BaseChatModel:
     """Create Ollama LLM instance."""
-    from langchain_ollama import ChatOllama
     import os
-    
+
+    from langchain_ollama import ChatOllama
+
     # Ollama base URL can be configured via environment variable
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    
+
     return ChatOllama(
         model=model,
         base_url=base_url,
@@ -154,23 +154,23 @@ def _create_ollama_llm(
     )
 
 
-def get_required_credential_type(provider: str) -> Optional[str]:
+def get_required_credential_type(provider: str) -> str | None:
     """
     Get the ServiceName credential type required for a provider.
-    
+
     Args:
         provider: The LLM provider name
-        
+
     Returns:
         ServiceName enum value, or None if no credential needed
     """
     from src.db.service_name import ServiceName
-    
+
     provider_to_credential = {
         'openai': ServiceName.OPENAI_API_KEY,
         'anthropic': ServiceName.ANTHROPIC_API_KEY,
         'google': ServiceName.GOOGLE_GEMINI_API_KEY,
         'ollama': None,  # Ollama is self-hosted, no API key needed
     }
-    
+
     return provider_to_credential.get(provider)

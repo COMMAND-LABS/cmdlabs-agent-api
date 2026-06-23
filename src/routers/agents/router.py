@@ -8,9 +8,9 @@ Aggregates all agent-related endpoints:
 """
 from fastapi import APIRouter
 
-from .stream import router as stream_router
 from .completion import router as completion_router
 from .get import router as get_router
+from .stream import router as stream_router
 
 router = APIRouter()
 

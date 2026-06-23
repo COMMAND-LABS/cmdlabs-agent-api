@@ -55,8 +55,8 @@ def fake_agent():
 @pytest.fixture
 def test_client():
     """FastAPI TestClient with auth and DB dependencies overridden."""
+    from src.deps import get_current_user_or_api_key, get_db
     from src.main import app
-    from src.deps import get_db, get_current_user_or_api_key
 
     mock_db = MagicMock()
 

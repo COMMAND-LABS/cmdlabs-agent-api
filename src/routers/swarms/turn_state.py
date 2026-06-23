@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import os
-from typing import Optional
 
 from fastapi import HTTPException
 
@@ -33,7 +32,7 @@ def build_turn_state(
     *,
     session_id: str,
     history: list[ConversationEntry],
-    last_message_id: Optional[int],
+    last_message_id: int | None,
     swarm_hash: str,
 ) -> TurnState:
     return TurnState(
@@ -62,7 +61,7 @@ def decode_and_validate_turn_state(
     token: str,
     *,
     expected_session_id: str,
-    expected_last_message_id: Optional[int],
+    expected_last_message_id: int | None,
     expected_swarm_hash: str,
     expected_response_count: int,
 ) -> TurnState:

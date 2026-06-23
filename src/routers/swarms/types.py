@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from src.multi_agent.session_logger import SessionLogger
 
@@ -10,7 +10,7 @@ from src.multi_agent.session_logger import SessionLogger
 class ConversationEntry:
     role: str
     content: str
-    agent_name: Optional[str] = None
+    agent_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ class RouterDecision:
 class TurnState:
     session_id: str
     response_count: int
-    last_message_id: Optional[int]
+    last_message_id: int | None
     swarm_hash: str
 
 
@@ -50,7 +50,7 @@ class PreparedTurnContext:
     provider: str
     api_key: str
     supervisor_model: str
-    supervisor_prompt: Optional[str]
+    supervisor_prompt: str | None
     agent_definitions: dict[str, AgentDefinition]
     agent_list: list[dict[str, str]]
     history: list[ConversationEntry]
@@ -63,7 +63,7 @@ class PreparedTurnContext:
 class TurnResult:
     agent_name: str
     content: str
-    state_token: Optional[str]
+    state_token: str | None
     done: bool
     route_reason: str
 

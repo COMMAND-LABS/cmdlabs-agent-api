@@ -1,25 +1,26 @@
 """Vector Search Tool — semantic search over Pinecone."""
 
-from typing import Dict, Any, Optional
+from typing import Any
+
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.tools.pinecone_helpers import (
-    load_pinecone_index,
-    generate_embedding,
-    query_pinecone,
     format_matches,
+    generate_embedding,
+    load_pinecone_index,
+    query_pinecone,
 )
 
 
 async def create_vector_search_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Session,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs,
-) -> Optional[StructuredTool]:
+) -> StructuredTool | None:
     setup = load_pinecone_index(tool_config, account_id, db, **kwargs)
     if not setup:
         return None
@@ -28,7 +29,7 @@ async def create_vector_search_tool(
     description = tool_config.get("description", f"Search the {namespace} knowledge base")
     top_k_default = tool_config.get("topK", 10)
 
-    async def retrieval_impl(query: str, top_k: int = top_k_default) -> Dict:
+    async def retrieval_impl(query: str, top_k: int = top_k_default) -> dict:
         """Retrieve relevant documents from the knowledge base."""
         try:
             embedding = await generate_embedding(query, auth_token)

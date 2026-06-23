@@ -7,9 +7,9 @@ the full conversation is captured in one place.
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 
 class SessionLogger:
@@ -22,19 +22,19 @@ class SessionLogger:
         self._path = self._dir / f"{session_id}.log"
 
     def _write(self, line: str) -> None:
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         with open(self._path, "a") as f:
             f.write(f"[{ts}] {line}\n")
 
     def _write_block(self, header: str, body: str) -> None:
         """Write a multi-line block with a header and indented body."""
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         with open(self._path, "a") as f:
             f.write(f"[{ts}] {header}\n")
             for line in body.splitlines():
                 f.write(f"  {line}\n")
 
-    def log_route(self, prompt: str, speakers: List[str], reason: str | None = None) -> None:
+    def log_route(self, prompt: str, speakers: list[str], reason: str | None = None) -> None:
         reason_text = reason or ""
         self._write(f"ROUTE  prompt={prompt!r}  speakers={speakers}  reason={reason_text!r}")
 

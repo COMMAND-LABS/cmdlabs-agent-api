@@ -17,9 +17,9 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.models import Account, Contact, ContactEvent
 from src.tools.contact_crm import (
-    create_contact_read_tool,
-    create_contact_events_read_tool,
     create_contact_event_write_tool,
+    create_contact_events_read_tool,
+    create_contact_read_tool,
 )
 
 

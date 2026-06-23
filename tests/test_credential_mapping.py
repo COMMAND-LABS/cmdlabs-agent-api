@@ -1,11 +1,11 @@
 """Tests for LLM provider credential mapping."""
 
+from src.db.service_name import ServiceName
 from src.routers.agents.helpers.llm_factory import (
+    DEFAULT_MODEL_CONFIG,
     get_model_config,
     get_required_credential_type,
-    DEFAULT_MODEL_CONFIG,
 )
-from src.db.service_name import ServiceName
 
 
 def test_default_model_config():

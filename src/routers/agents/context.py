@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import Request
-from langchain_classic.agents import AgentExecutor, create_openai_tools_agent, create_tool_calling_agent
+from langchain_classic.agents import (
+    AgentExecutor,
+    create_openai_tools_agent,
+    create_tool_calling_agent,
+)
 from langchain_classic.memory import ConversationBufferMemory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -19,7 +23,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import StructuredTool
 
 from src.db.database import SessionLocal
-from src.db.models import Agent, ChatSession, ChatMessage, Credential
+from src.db.models import Agent, ChatMessage, ChatSession, Credential
 from src.db.retry import db_retry_once
 from src.routers.agents.access import load_agent_with_access_check
 from src.routers.agents.contact_agent_config import (
@@ -28,41 +32,48 @@ from src.routers.agents.contact_agent_config import (
 )
 from src.routers.agents.helpers import (
     build_message_history,
-    store_user_message,
-    store_ai_message,
+    create_llm,
     extract_auth_token,
     get_model_config,
-    create_llm,
     get_required_credential_type,
+    store_ai_message,
+    store_user_message,
 )
 from src.routers.credentials.encryption import get_credential_value
-from src.tools import create_tools_from_agent_config, CredentialError
-from src.utils.pdf_to_images import build_pdf_message, build_image_message, build_document_message
-from src.utils.template_variables import resolve_template_variables, build_variable_context
+from src.tools import CredentialError, create_tools_from_agent_config
+from src.utils.pdf_to_images import (
+    build_document_message,
+    build_image_message,
+    build_pdf_message,
+)
+from src.utils.template_variables import (
+    build_variable_context,
+    resolve_template_variables,
+)
 
 
 @dataclass
 class AgentContext:
     """Everything the streaming / non-streaming endpoints need after setup."""
 
-    agent: Optional[Agent]  # None on the code-defined (override) path
+    agent: Agent | None  # None on the code-defined (override) path
     account_id: int
     provider: str
     model_name: str
     llm: BaseChatModel
-    tools: List[StructuredTool]
+    tools: list[StructuredTool]
     prompt_template: ChatPromptTemplate
     memory: ConversationBufferMemory
     message_history: ChatMessageHistory
-    agent_executor: Optional[AgentExecutor]
+    agent_executor: AgentExecutor | None
     agent_input: Any
     chat_session_id: int
     session_uuid: uuid.UUID
     user_email: str
     prompt: str
-    pdf_filename: Optional[str]
+    pdf_filename: str | None
     # GCS-backed attachment reference persisted onto the chat message, or None.
-    attachment_ref: Optional[dict]
+    attachment_ref: dict | None
     callbacks: list
 
 
@@ -77,7 +88,7 @@ class AgentSetupError(Exception):
 
 async def prepare_agent_context(
     *,
-    agent_id: Optional[int] = None,
+    agent_id: int | None = None,
     session_id: str,
     prompt: str,
     db,
@@ -85,16 +96,16 @@ async def prepare_agent_context(
     request: Request,
     callbacks: list,
     streaming: bool = True,
-    pdf_base64: Optional[str] = None,
-    pdf_filename: Optional[str] = None,
+    pdf_base64: str | None = None,
+    pdf_filename: str | None = None,
     pdf_use_vision: bool = False,
-    image_base64: Optional[str] = None,
-    document_text: Optional[str] = None,
-    attachment_filename: Optional[str] = None,
-    attachment_content_type: Optional[str] = None,
-    gcs_bucket: Optional[str] = None,
-    gcs_file_path: Optional[str] = None,
-    agent_config_override: Optional[dict] = None,
+    image_base64: str | None = None,
+    document_text: str | None = None,
+    attachment_filename: str | None = None,
+    attachment_content_type: str | None = None,
+    gcs_bucket: str | None = None,
+    gcs_file_path: str | None = None,
+    agent_config_override: dict | None = None,
 ) -> AgentContext:
     """Build the full agent context shared by stream and completion endpoints.
 
@@ -136,7 +147,7 @@ async def prepare_agent_context(
 
     # --- Credentials ---
     required_credential_type = get_required_credential_type(provider)
-    credentials: Dict[str, str] = {}
+    credentials: dict[str, str] = {}
     if required_credential_type:
         credential = db_retry_once(
             db, "load provider credential",
@@ -263,7 +274,7 @@ async def prepare_agent_context(
     )
 
     user_email = auth.get("email", "unknown")
-    agent_executor: Optional[AgentExecutor] = None
+    agent_executor: AgentExecutor | None = None
     if tools and agent_langchain:
         agent_executor = AgentExecutor(
             agent=agent_langchain,
@@ -306,7 +317,7 @@ async def prepare_agent_context(
         agent_input = prompt
 
     # Build the persisted attachment reference (GCS-backed) for the chat message.
-    attachment_ref: Optional[dict] = None
+    attachment_ref: dict | None = None
     if gcs_bucket and gcs_file_path:
         if pdf_base64:
             attachment_type = "pdf"
@@ -355,8 +366,8 @@ async def prepare_agent_context(
 def persist_user_message(
     chat_session_id: int,
     prompt: str,
-    pdf_filename: Optional[str] = None,
-    attachment_ref: Optional[dict] = None,
+    pdf_filename: str | None = None,
+    attachment_ref: dict | None = None,
 ):
     """Write user message using a short-lived DB session."""
     db = SessionLocal()

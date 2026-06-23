@@ -1,9 +1,9 @@
 """Tests for template variable resolution."""
 
 from src.utils.template_variables import (
-    resolve_template_variables,
-    build_variable_context,
     SUPPORTED_VARIABLES,
+    build_variable_context,
+    resolve_template_variables,
 )
 
 

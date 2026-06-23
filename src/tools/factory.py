@@ -3,24 +3,26 @@ Tool Factory
 
 Dynamically creates LangChain StructuredTool instances from a v4 agent config.
 """
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 from langchain_core.tools import StructuredTool
+
 from .registry import ToolRegistry
 
 
-def _extract_tool_configs(agent_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _extract_tool_configs(agent_config: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the list of raw tool config dicts from a v4 agent config."""
     tools = agent_config.get("data", {}).get("tools", [])
     return [t for t in tools if isinstance(t, dict)] if isinstance(tools, list) else []
 
 
 async def _build_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Any,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs
-) -> Optional[StructuredTool]:
+) -> StructuredTool | None:
     tool_type = tool_config.get("type")
 
     if not tool_type:
@@ -49,12 +51,12 @@ async def _build_tool(
 
 
 async def create_tools_from_agent_config(
-    agent_config: Dict[str, Any],
+    agent_config: dict[str, Any],
     account_id: int,
     db: Any,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs
-) -> List[StructuredTool]:
+) -> list[StructuredTool]:
     """
     Build all LangChain tools declared in a v4 agent config.
 

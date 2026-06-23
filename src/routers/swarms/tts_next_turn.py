@@ -1,26 +1,25 @@
 """TTS next-turn endpoints for JSON and SSE transport."""
 
 import json
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from src.deps import db_dependency, auth_dependency
+from src.deps import auth_dependency, db_dependency
+from src.multi_agent.session_logger import SessionLogger
+from src.ratelimit import limiter
 from src.routers.swarms.langgraph_schemas import (
     SwarmTtsNextTurnRequest,
     SwarmTtsNextTurnResponse,
 )
-from src.ratelimit import limiter
-
-from src.multi_agent.session_logger import SessionLogger
 from src.routers.swarms.turn_context import prepare_tts_turn_context
 from src.routers.swarms.turn_engine import execute_turn, stream_turn
 
 router = APIRouter()
 
 
-def _sse(event: str, data: Optional[dict] = None) -> str:
+def _sse(event: str, data: dict | None = None) -> str:
     body = json.dumps(data or {}, separators=(",", ":"))
     return f"event: {event}\ndata: {body}\n\n"
 

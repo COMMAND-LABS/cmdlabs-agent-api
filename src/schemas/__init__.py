@@ -7,16 +7,15 @@ directory and $ref is resolved by filename convention.
 
 import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 import jsonschema
 
-
 _SCHEMA_DIR = Path(__file__).parent
-_SCHEMA_CACHE: Dict[str, Dict[str, Any]] = {}
+_SCHEMA_CACHE: dict[str, dict[str, Any]] = {}
 
 
-def _load(name: str, version: int) -> Dict[str, Any]:
+def _load(name: str, version: int) -> dict[str, Any]:
     key = f"{name}.v{version}"
     if key not in _SCHEMA_CACHE:
         path = _SCHEMA_DIR / f"{key}.json"
@@ -27,11 +26,11 @@ def _load(name: str, version: int) -> Dict[str, Any]:
     return _SCHEMA_CACHE[key]
 
 
-def load_schema(schema_name: str, version: int) -> Dict[str, Any]:
+def load_schema(schema_name: str, version: int) -> dict[str, Any]:
     return _load(schema_name, version)
 
 
-def validate_against_schema(data: Dict[str, Any], schema_name: str, version: int) -> None:
+def validate_against_schema(data: dict[str, Any], schema_name: str, version: int) -> None:
     """Validate *data* against a local JSON schema.
 
     Raises ``jsonschema.ValidationError`` only if the schema itself is found
@@ -42,7 +41,7 @@ def validate_against_schema(data: Dict[str, Any], schema_name: str, version: int
     except FileNotFoundError:
         return
 
-    store: Dict[str, Dict[str, Any]] = {}
+    store: dict[str, dict[str, Any]] = {}
 
     # Pre-load known local schemas so $ref works without network access.
     for path in _SCHEMA_DIR.glob("*.json"):

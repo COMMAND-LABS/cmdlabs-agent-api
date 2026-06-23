@@ -4,10 +4,10 @@ import pytest
 from fastapi import HTTPException
 
 from src.routers.swarms.turn_state import (
-    encode_turn_state,
-    decode_and_validate_turn_state,
     compute_authoritative_response_count,
     compute_swarm_hash,
+    decode_and_validate_turn_state,
+    encode_turn_state,
 )
 from src.routers.swarms.types import ConversationEntry, TurnState
 
@@ -98,8 +98,8 @@ def test_authoritative_count_resets_on_user():
 
 def test_swarm_hash_deterministic():
     from src.routers.swarms.langgraph_schemas import (
-        LanggraphSwarmConfigInput,
         LanggraphSupervisorInput,
+        LanggraphSwarmConfigInput,
         LanggraphWorkerInput,
     )
     swarm = LanggraphSwarmConfigInput(

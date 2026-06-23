@@ -6,7 +6,10 @@ from fastapi import HTTPException
 
 from src.multi_agent.session_logger import SessionLogger
 from src.routers.swarms.turn_engine import execute_turn, stream_turn
-from src.routers.swarms.turn_state import decode_and_validate_turn_state, encode_turn_state
+from src.routers.swarms.turn_state import (
+    decode_and_validate_turn_state,
+    encode_turn_state,
+)
 from src.routers.swarms.types import (
     AgentDefinition,
     ConversationEntry,

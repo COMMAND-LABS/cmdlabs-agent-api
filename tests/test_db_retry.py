@@ -1,7 +1,8 @@
 """Tests for the transient DB error retry helper."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 from sqlalchemy.exc import OperationalError
 
 from src.db.retry import db_retry_once, is_transient_db_error

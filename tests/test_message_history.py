@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 from src.routers.agents.helpers.message_history import (
     build_message_history,
-    store_user_message,
     store_ai_message,
+    store_user_message,
 )
 
 

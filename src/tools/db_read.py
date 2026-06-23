@@ -5,12 +5,14 @@ Database Read Tool
 Provides read access to external database tables via stored credentials.
 Allows agents to query structured data from user-configured databases.
 """
-from typing import Dict, Any, Optional, List, TypedDict
+from typing import Any, TypedDict
+
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.pool import NullPool
+
 from src.db.models import Credential
 from src.routers.credentials.encryption import decrypt_credential_data
 
@@ -18,12 +20,12 @@ from src.routers.credentials.encryption import decrypt_credential_data
 # Type definitions for database read results
 class DbReadResult(TypedDict):
     """A single row from database query."""
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
 
 class DbReadSuccess(TypedDict):
     """Successful database read result."""
-    results: List[DbReadResult]
+    results: list[DbReadResult]
     table: str
     count: int
 
@@ -37,14 +39,13 @@ def serialize_value(value: Any) -> Any:
     """Serialize a database value to JSON-compatible format."""
     if value is None:
         return None
-    elif hasattr(value, 'isoformat'):  # datetime objects
+    if hasattr(value, 'isoformat'):  # datetime objects
         return value.isoformat()
-    elif isinstance(value, bytes):
+    if isinstance(value, bytes):
         return value.decode('utf-8', errors='replace')
-    elif hasattr(value, '__dict__'):  # Complex objects
+    if hasattr(value, '__dict__'):  # Complex objects
         return str(value)
-    else:
-        return value
+    return value
 
 
 from src.tools.exceptions import CredentialError
@@ -53,15 +54,15 @@ from src.tools.exceptions import CredentialError
 def get_connection_string(credential_id: int, account_id: int, db: Session) -> str:
     """
     Retrieve and decrypt the connection string from a stored credential.
-    
+
     Args:
         credential_id: ID of the credential to look up
         account_id: Account ID for security (must own the credential)
         db: Database session
-        
+
     Returns:
         Decrypted connection string
-        
+
     Raises:
         CredentialError: If credential not found, unauthorized, wrong type, or decryption fails
     """
@@ -70,23 +71,23 @@ def get_connection_string(credential_id: int, account_id: int, db: Session) -> s
         Credential.id == credential_id,
         Credential.account_id == account_id
     ).first()
-    
+
     if not credential:
         raise CredentialError(
             f"Credential with ID {credential_id} not found. "
             f"It may have been deleted or you don't have access to it."
         )
-    
+
     if credential.auth_type != "db_connection":
         raise CredentialError(
             f"Credential {credential_id} is not a database connection. "
             f"Expected type 'db_connection', got '{credential.auth_type}'."
         )
-    
+
     try:
         # Decrypt the credential data
         credential_data = decrypt_credential_data(credential.encrypted_data)
-        
+
         # Get the connection string
         connection_string = credential_data.get("connection_string")
         if not connection_string:
@@ -94,7 +95,7 @@ def get_connection_string(credential_id: int, account_id: int, db: Session) -> s
                 f"Credential {credential_id} does not contain a 'connection_string'. "
                 f"Available keys: {list(credential_data.keys())}"
             )
-        
+
         return connection_string
     except CredentialError:
         raise
@@ -103,15 +104,15 @@ def get_connection_string(credential_id: int, account_id: int, db: Session) -> s
 
 
 async def create_db_read_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Session,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs
 ) -> StructuredTool:
     """
     Create a database read tool for querying external database tables.
-    
+
     Args:
         tool_config: Tool configuration including:
             - credentialId: ID of stored credential with connection string
@@ -124,10 +125,10 @@ async def create_db_read_tool(
         db: Database session (for credential lookup)
         auth_token: Authentication token (unused)
         **kwargs: Additional context (unused)
-        
+
     Returns:
         StructuredTool for database queries, or None if setup fails
-        
+
     Example tool_config:
         {
             "type": "dbTableRead",
@@ -143,14 +144,14 @@ async def create_db_read_tool(
     description = tool_config.get('description', f"Query data from {table_name} table")
     allowed_columns = tool_config.get('columns', [])
     max_limit = tool_config.get('maxLimit', 100)
-    
+
     # Validate required fields
     if not credential_id:
         raise CredentialError("Missing required field 'credentialId' in dbTableRead tool configuration")
-    
+
     if not table_name:
         raise ValueError("Missing required field 'table' in dbTableRead tool configuration")
-    
+
     # For shared agents, use the agent owner's credentials so shared users
     # can read from the owner's database.  Write tools (db_write) intentionally
     # do NOT do this — write access requires the caller's own credentials.
@@ -158,13 +159,13 @@ async def create_db_read_tool(
 
     # Get the connection string from the credential (raises CredentialError if fails)
     connection_string = get_connection_string(credential_id, credential_account_id, db)
-    
+
     # Create the database engine for the external database
     # Use NullPool to avoid creating persistent connection pools for each tool
     # Connections are created/closed on each query - better for tools that run infrequently
     try:
         external_engine = create_engine(
-            connection_string, 
+            connection_string,
             poolclass=NullPool,  # No persistent pool - connections close after each use
             pool_pre_ping=True
         )
@@ -173,24 +174,24 @@ async def create_db_read_tool(
         raise CredentialError(
             f"Failed to connect to database using credential {credential_id}: {e}"
         )
-    
+
     # Validate the table exists and get its columns
     try:
         with external_engine.connect():
             inspector = inspect(external_engine)
             tables = inspector.get_table_names()
-            
+
             if table_name not in tables:
                 available = tables[:10]
                 raise ValueError(
                     f"Table '{table_name}' not found in database. "
                     f"Available tables: {available}{'...' if len(tables) > 10 else ''}"
                 )
-            
+
             # Get actual column names from the table
             table_columns = [col['name'] for col in inspector.get_columns(table_name)]
             print(f"[DB READ TOOL] Table '{table_name}' columns: {table_columns}")
-            
+
             # Validate allowed_columns exist in the table
             if allowed_columns:
                 invalid_columns = [col for col in allowed_columns if col not in table_columns]
@@ -202,41 +203,41 @@ async def create_db_read_tool(
                 selected_columns = allowed_columns
             else:
                 # If no columns specified, use all columns (not recommended for security)
-                print(f"[DB READ TOOL] ⚠️ Warning: No columns specified, exposing all columns")
+                print("[DB READ TOOL] ⚠️ Warning: No columns specified, exposing all columns")
                 selected_columns = table_columns
-                
+
     except (CredentialError, ValueError):
         raise
     except Exception as e:
         raise ValueError(f"Failed to validate table '{table_name}': {e}")
-    
+
     print(f"[DB READ TOOL] Tool 'db_table_read' ready for table: {table_name} (columns: {selected_columns})")
-    
+
     # Define the query implementation
     async def query_impl(
-        filters: Optional[Dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
         limit: int = 50,
         offset: int = 0
     ) -> DbReadSuccess | DbReadError:
         """Query the external database table with optional filters."""
         # DEBUG: Tool invocation
         print(f"\n{'='*60}")
-        print(f"[DB READ TOOL] 🚀 TOOL INVOKED: db_table_read")
+        print("[DB READ TOOL] 🚀 TOOL INVOKED: db_table_read")
         print(f"[DB READ TOOL] 📊 Table: {table_name}")
         print(f"[DB READ TOOL] 🔍 Filters: {filters}")
         print(f"[DB READ TOOL] 📈 Limit: {limit}, Offset: {offset}")
         print(f"{'='*60}\n")
-        
+
         try:
             # Enforce max limit
             if limit > max_limit:
                 limit = max_limit
                 print(f"[DB READ TOOL] ⚠️ Limit capped to max: {max_limit}")
-            
+
             # Build the SELECT query with only allowed columns
             columns_sql = ", ".join([f'"{col}"' for col in selected_columns])
             query_sql = f'SELECT {columns_sql} FROM "{table_name}"'
-            
+
             # Add WHERE clause for filters
             params = {}
             if filters:
@@ -250,25 +251,25 @@ async def create_db_read_tool(
                         print(f"[DB READ TOOL] 🔍 Applied filter: {column_name} = {value}")
                     else:
                         print(f"[DB READ TOOL] ⚠️ Ignoring filter on non-allowed column: {column_name}")
-                
+
                 if where_clauses:
                     query_sql += " WHERE " + " AND ".join(where_clauses)
-            
+
             # Add LIMIT and OFFSET
-            query_sql += f" LIMIT :limit OFFSET :offset"
+            query_sql += " LIMIT :limit OFFSET :offset"
             params["limit"] = limit
             params["offset"] = offset
-            
+
             print(f"[DB READ TOOL] 📡 Executing query: {query_sql}")
-            
+
             # Execute query
             with external_engine.connect() as conn:
                 result = conn.execute(text(query_sql), params)
                 rows = result.fetchall()
                 column_names = result.keys()
-            
+
             print(f"[DB READ TOOL] ✅ Query complete: {len(rows)} rows returned")
-            
+
             # Format results
             formatted_results = []
             for row in rows:
@@ -276,28 +277,28 @@ async def create_db_read_tool(
                 for col_name, value in zip(column_names, row):
                     row_data[col_name] = serialize_value(value)
                 formatted_results.append({"data": row_data})
-            
+
             print(f"[DB READ TOOL] 🎯 Returning {len(formatted_results)} results")
             print(f"{'='*60}\n")
-            
+
             return {
                 "results": formatted_results,
                 "table": table_name,
                 "count": len(formatted_results)
             }
-            
+
         except Exception as e:
-            print(f"\n[DB READ TOOL] ❌❌❌ EXCEPTION CAUGHT ❌❌❌")
+            print("\n[DB READ TOOL] ❌❌❌ EXCEPTION CAUGHT ❌❌❌")
             print(f"[DB READ TOOL] Error: {e}")
             print(f"[DB READ TOOL] Type: {type(e).__name__}")
             import traceback
             traceback.print_exc()
             print(f"{'='*60}\n")
             return {"error": str(e)}
-    
+
     # Define the Pydantic schema for the tool arguments
     class QueryInput(BaseModel):
-        filters: Optional[Dict[str, Any]] = Field(
+        filters: dict[str, Any] | None = Field(
             default=None,
             description=f"Optional filters to apply. Allowed columns: {selected_columns}"
         )
@@ -312,7 +313,7 @@ async def create_db_read_tool(
             description="Number of results to skip (for pagination)",
             ge=0
         )
-    
+
     tool_name_suffix = table_name.lower().replace(" ", "_")
     unique_tool_name = f"db_table_read_{tool_name_suffix}"
     return StructuredTool(

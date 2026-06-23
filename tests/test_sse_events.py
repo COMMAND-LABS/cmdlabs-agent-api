@@ -2,7 +2,7 @@
 
 import json
 
-from src.routers.agents.helpers.sse_events import sse_event, sse_error, EventType
+from src.routers.agents.helpers.sse_events import EventType, sse_error, sse_event
 
 
 def test_sse_event_basic():

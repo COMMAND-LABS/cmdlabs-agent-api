@@ -1,8 +1,9 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
-import os
 
 SQL_ALCHEMY_DATABASE_URL = os.getenv("POSTGRES_URL")
 

@@ -14,11 +14,11 @@ structurally-scoped tools enforce that only this contact's data is reachable.
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from src.ratelimit import limiter
-from src.deps import db_dependency, auth_dependency
 from src.core.schemas.ChatSessionPrompt import ChatSessionPrompt
-from src.routers.agents.stream import generator
+from src.deps import auth_dependency, db_dependency
+from src.ratelimit import limiter
 from src.routers.agents.contact_agent_config import CONTACT_AGENT_CONFIG
+from src.routers.agents.stream import generator
 
 router = APIRouter()
 

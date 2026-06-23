@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from src.routers.swarms.langgraph_schemas import LanggraphSwarmConfigInput
-from src.routers.swarms.types import AgentDefinition, ConversationEntry, LLMRequest, RouterDecision
-
+from src.routers.swarms.types import (
+    AgentDefinition,
+    ConversationEntry,
+    LLMRequest,
+    RouterDecision,
+)
 
 _INVALID_NAME_CHARS = re.compile(r"[\s<|\\/>]+")
 _ROUTER_MAX_MESSAGES = 20
@@ -69,7 +73,7 @@ def build_agent_list(agent_definitions: dict[str, AgentDefinition]) -> list[dict
     ]
 
 
-def _provider_message(role: str, content: str, *, name: Optional[str] = None) -> dict[str, str]:
+def _provider_message(role: str, content: str, *, name: str | None = None) -> dict[str, str]:
     message: dict[str, str] = {"role": role, "content": content}
     if name:
         message["name"] = sanitize_name(name)
@@ -80,7 +84,7 @@ def build_router_request(
     *,
     history: list[ConversationEntry],
     agents: list[dict[str, str]],
-    supervisor_prompt: Optional[str] = None,
+    supervisor_prompt: str | None = None,
 ) -> LLMRequest:
     recent = history[-_ROUTER_MAX_MESSAGES:]
     agent_list = "\n".join(

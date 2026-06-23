@@ -6,8 +6,8 @@ Fallback: raw HTML when no suitable template exists.
 
 import json
 import re
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, model_validator
@@ -15,10 +15,14 @@ from sqlalchemy.orm import Session
 
 from src.db.models import EmailTemplate, PendingToolApproval
 from src.tools.exceptions import CredentialError
-from src.tools.hitl_email_base import HITL_SENTINEL_KEY, APPROVAL_TTL_MINUTES, verify_credential
+from src.tools.hitl_email_base import (
+    APPROVAL_TTL_MINUTES,
+    HITL_SENTINEL_KEY,
+    verify_credential,
+)
 
 
-def _render(template: str, variables: Dict[str, str]) -> str:
+def _render(template: str, variables: dict[str, str]) -> str:
     """Replace {{ token }} placeholders — tolerates optional spaces around the name."""
     return re.sub(
         r'\{\{\s*(\w+)\s*\}\}',
@@ -51,10 +55,10 @@ def _build_template_catalogue(db: Session, account_id: int) -> str:
 
 
 async def create_send_html_email_with_ses_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Session,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs,
 ) -> StructuredTool:
     """
@@ -77,8 +81,8 @@ async def create_send_html_email_with_ses_tool(
         "AWS SES",
     )
 
-    agent_id: Optional[int] = kwargs.get("agent_id")
-    chat_session_id: Optional[int] = kwargs.get("chat_session_id_pk")
+    agent_id: int | None = kwargs.get("agent_id")
+    chat_session_id: int | None = kwargs.get("chat_session_id_pk")
 
     # Build a live catalogue of templates for the LLM description
     catalogue = _build_template_catalogue(db, credential_account_id)
@@ -106,14 +110,14 @@ async def create_send_html_email_with_ses_tool(
 
     async def queued_send(
         to_email: str,
-        template_id: Optional[int] = None,
-        variables: Optional[Dict[str, str]] = None,
-        html_body: Optional[str] = None,
-        subject: Optional[str] = None,
+        template_id: int | None = None,
+        variables: dict[str, str] | None = None,
+        html_body: str | None = None,
+        subject: str | None = None,
     ) -> str:
         """Resolve template / raw HTML, then create the PendingToolApproval."""
-        template_name: Optional[str] = None
-        merged_variables: Dict[str, str] = {}
+        template_name: str | None = None
+        merged_variables: dict[str, str] = {}
 
         # ── Template mode ──────────────────────────────────────────────────────
         if template_id is not None:
@@ -161,14 +165,14 @@ async def create_send_html_email_with_ses_tool(
                 })
 
         print(f"\n{'='*60}")
-        print(f"[SEND HTML EMAIL TOOL] 📬 queuing for approval")
+        print("[SEND HTML EMAIL TOOL] 📬 queuing for approval")
         print(f"[SEND HTML EMAIL TOOL]   To          : {to_email}")
         print(f"[SEND HTML EMAIL TOOL]   Subject     : {subject}")
         print(f"[SEND HTML EMAIL TOOL]   template_id : {template_id}")
         print(f"[SEND HTML EMAIL TOOL]   HTML bytes  : {len(html_body or '')}")
         print(f"{'='*60}\n")
 
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=APPROVAL_TTL_MINUTES)
+        expires_at = datetime.now(UTC) + timedelta(minutes=APPROVAL_TTL_MINUTES)
 
         approval_db: Session = SessionLocal()
         try:
@@ -228,7 +232,7 @@ async def create_send_html_email_with_ses_tool(
         to_email: str = Field(
             description="Recipient email address (e.g. user@example.com)"
         )
-        template_id: Optional[int] = Field(
+        template_id: int | None = Field(
             default=None,
             description=(
                 "ID of a saved email template — STRONGLY PREFERRED. "
@@ -237,7 +241,7 @@ async def create_send_html_email_with_ses_tool(
                 "Look up the available templates listed in this tool's description."
             ),
         )
-        variables: Optional[Dict[str, str]] = Field(
+        variables: dict[str, str] | None = Field(
             default=None,
             description=(
                 "Variable values to inject into the template. "
@@ -245,7 +249,7 @@ async def create_send_html_email_with_ses_tool(
                 'Example: {"first_name": "Alex", "body": "Your order shipped today."}'
             ),
         )
-        html_body: Optional[str] = Field(
+        html_body: str | None = Field(
             default=None,
             description=(
                 "Complete, self-contained HTML email body. "
@@ -253,7 +257,7 @@ async def create_send_html_email_with_ses_tool(
                 "Must use inline CSS and a table-based layout ≤ 600 px wide."
             ),
         )
-        subject: Optional[str] = Field(
+        subject: str | None = Field(
             default=None,
             description=(
                 "Email subject line — required ONLY when using raw html_body (no template). "

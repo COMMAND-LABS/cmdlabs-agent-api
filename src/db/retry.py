@@ -8,7 +8,6 @@ import time
 
 from sqlalchemy.exc import OperationalError
 
-
 _TRANSIENT_PATTERNS = (
     "ssl connection has been closed unexpectedly",
     "server closed the connection unexpectedly",

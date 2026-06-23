@@ -15,7 +15,11 @@ from src.routers.swarms.repository import (
     persist_user_message,
     resolve_api_key,
 )
-from src.routers.swarms.turn_state import build_turn_state, compute_swarm_hash, decode_and_validate_turn_state
+from src.routers.swarms.turn_state import (
+    build_turn_state,
+    compute_swarm_hash,
+    decode_and_validate_turn_state,
+)
 from src.routers.swarms.types import ConversationEntry, PreparedTurnContext
 
 

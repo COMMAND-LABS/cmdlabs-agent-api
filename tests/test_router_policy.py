@@ -1,15 +1,15 @@
 """Tests for the swarm router policy (prompt building and decision parsing)."""
 
+from src.routers.swarms.langgraph_schemas import (
+    LanggraphSupervisorInput,
+    LanggraphSwarmConfigInput,
+    LanggraphWorkerInput,
+)
 from src.routers.swarms.policy import (
-    parse_router_decision,
-    sanitize_name,
     build_agent_definitions,
     build_agent_list,
-)
-from src.routers.swarms.langgraph_schemas import (
-    LanggraphSwarmConfigInput,
-    LanggraphSupervisorInput,
-    LanggraphWorkerInput,
+    parse_router_decision,
+    sanitize_name,
 )
 
 

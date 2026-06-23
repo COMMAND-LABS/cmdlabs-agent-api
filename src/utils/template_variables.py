@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 SUPPORTED_VARIABLES = {
     "current_time",
@@ -13,7 +13,7 @@ TEMPLATE_PATTERN = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 
 def build_variable_context(agent_name: str = "") -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "current_time": now.strftime("%H:%M UTC"),
         "current_date": now.strftime("%Y-%m-%d"),

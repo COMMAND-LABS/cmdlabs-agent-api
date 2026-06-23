@@ -6,7 +6,7 @@ duplicating ~100 lines of identical setup and query code.
 """
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiohttp
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ from src.routers.credentials.encryption import get_credential_value
 
 
 def load_pinecone_index(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Session,
     **kwargs,
@@ -62,7 +62,7 @@ def load_pinecone_index(
     return index, namespace, index_name
 
 
-async def generate_embedding(query: str, auth_token: Optional[str] = None) -> Optional[List[float]]:
+async def generate_embedding(query: str, auth_token: str | None = None) -> list[float] | None:
     """Call the embeddings microservice and return the embedding vector, or ``None`` on failure."""
     headers = {}
     if auth_token:
@@ -86,10 +86,10 @@ async def generate_embedding(query: str, auth_token: Optional[str] = None) -> Op
 
 async def query_pinecone(
     index,
-    embedding: List[float],
+    embedding: list[float],
     namespace: str,
     top_k: int,
-) -> Optional[List[Dict[str, Any]]]:
+) -> list[dict[str, Any]] | None:
     """Run a Pinecone similarity query and return the matches list."""
     results = index.query(
         vector=embedding,
@@ -101,7 +101,7 @@ async def query_pinecone(
     return results.get("matches", [])
 
 
-def format_matches(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def format_matches(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Format Pinecone matches into the standard tool output shape."""
     return [
         {

@@ -22,12 +22,14 @@ symmetrically — e.g. update_contact_event(event_id, ...) would still
 even an event_id argument could not escape the bound contact.
 """
 
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from src.db.models import Contact, ContactEvent
+
 from .db_read import serialize_value
 
 
@@ -37,11 +39,11 @@ def _default_session_factory():
     return SessionLocal()
 
 
-def _resolve_session_factory(kwargs: Dict[str, Any]) -> Callable[[], Any]:
+def _resolve_session_factory(kwargs: dict[str, Any]) -> Callable[[], Any]:
     return kwargs.get("session_factory") or _default_session_factory
 
 
-def _serialize_contact(c: Contact) -> Dict[str, Any]:
+def _serialize_contact(c: Contact) -> dict[str, Any]:
     name = " ".join(p for p in [c.first_name, c.middle_name, c.last_name] if p)
     return {
         "id": c.id,
@@ -56,7 +58,7 @@ def _serialize_contact(c: Contact) -> Dict[str, Any]:
     }
 
 
-def _serialize_event(e: ContactEvent) -> Dict[str, Any]:
+def _serialize_event(e: ContactEvent) -> dict[str, Any]:
     return {
         "id": e.id,
         "event_type": e.event_type,
@@ -75,7 +77,7 @@ class GetContactArgs(BaseModel):
 
 
 class ListContactEventsArgs(BaseModel):
-    event_type: Optional[str] = Field(
+    event_type: str | None = Field(
         default=None,
         description="Optional filter, e.g. 'call', 'email', 'meeting', 'note'.",
     )
@@ -90,12 +92,12 @@ class AddContactEventArgs(BaseModel):
         description="Kind of interaction, e.g. 'call', 'email', 'meeting', 'note'."
     )
     title: str = Field(description="Short summary of what happened.")
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None, description="Optional longer details."
     )
 
 
-def _missing_contact_error() -> Dict[str, str]:
+def _missing_contact_error() -> dict[str, str]:
     # Defensive only: prepare_agent_context fails closed before tools are even
     # built when a contact-scoped agent has no bound contact. This guards the
     # impossible path rather than silently running unscoped.
@@ -103,16 +105,16 @@ def _missing_contact_error() -> Dict[str, str]:
 
 
 async def create_contact_read_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Any = None,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs,
 ) -> StructuredTool:
     contact_id = kwargs.get("contact_id")
     session_factory = _resolve_session_factory(kwargs)
 
-    async def get_contact() -> Dict[str, Any]:
+    async def get_contact() -> dict[str, Any]:
         if contact_id is None:
             return _missing_contact_error()
         s = session_factory()
@@ -136,18 +138,18 @@ async def create_contact_read_tool(
 
 
 async def create_contact_events_read_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Any = None,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs,
 ) -> StructuredTool:
     contact_id = kwargs.get("contact_id")
     session_factory = _resolve_session_factory(kwargs)
 
     async def list_contact_events(
-        event_type: Optional[str] = None, limit: int = 50
-    ) -> Dict[str, Any]:
+        event_type: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
         if contact_id is None:
             return _missing_contact_error()
         limit = max(1, min(int(limit), 200))
@@ -176,18 +178,18 @@ async def create_contact_events_read_tool(
 
 
 async def create_contact_event_write_tool(
-    tool_config: Dict[str, Any],
+    tool_config: dict[str, Any],
     account_id: int,
     db: Any = None,
-    auth_token: Optional[str] = None,
+    auth_token: str | None = None,
     **kwargs,
 ) -> StructuredTool:
     contact_id = kwargs.get("contact_id")
     session_factory = _resolve_session_factory(kwargs)
 
     async def add_contact_event(
-        event_type: str, title: str, description: Optional[str] = None
-    ) -> Dict[str, Any]:
+        event_type: str, title: str, description: str | None = None
+    ) -> dict[str, Any]:
         if contact_id is None:
             return _missing_contact_error()
         s = session_factory()

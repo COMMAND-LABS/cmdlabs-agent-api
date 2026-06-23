@@ -5,20 +5,20 @@ response.  Uses the same agent setup logic as stream.py via the shared
 ``prepare_agent_context`` helper.
 """
 
-from fastapi import APIRouter, Request, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from src.ratelimit import limiter
 
-from src.deps import db_dependency, auth_dependency
 from src.core.schemas.ChatSessionPrompt import ChatSessionPrompt
-from src.utils.langsmith import get_langsmith_callbacks
+from src.deps import auth_dependency, db_dependency
+from src.ratelimit import limiter
 from src.routers.agents.context import (
     AgentSetupError,
-    prepare_agent_context,
-    persist_user_message,
     persist_ai_message,
+    persist_user_message,
+    prepare_agent_context,
 )
 from src.routers.agents.helpers import format_tool_call
+from src.utils.langsmith import get_langsmith_callbacks
 
 router = APIRouter()
 callbacks = get_langsmith_callbacks("dynamic-agent-completion")
@@ -94,5 +94,5 @@ async def agent_completion(
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Completion failed: {str(e)}",
+            detail=f"Completion failed: {e!s}",
         )

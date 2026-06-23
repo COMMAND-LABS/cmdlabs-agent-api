@@ -1,23 +1,24 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from src.db.models import ChatMessage, ChatSession, Credential
 from src.db.retry import db_retry_once
-from src.routers.agents.helpers.message_history import store_ai_message, store_user_message
+from src.routers.agents.helpers.message_history import (
+    store_ai_message,
+    store_user_message,
+)
 from src.routers.credentials.encryption import get_credential_value
 from src.routers.swarms.langgraph_schemas import LanggraphSwarmConfigInput
 from src.routers.swarms.types import ConversationEntry
 
-
 DEFAULT_PROVIDER = "openai"
 
 
-def credential_type_for(provider: str) -> Optional[str]:
+def credential_type_for(provider: str) -> str | None:
     from src.routers.agents.helpers.llm_factory import get_required_credential_type
     return get_required_credential_type(provider)
 
@@ -117,7 +118,7 @@ def persist_ai_message(
     *,
     chat_session_id: int,
     content: str,
-    agent_name: Optional[str] = None,
+    agent_name: str | None = None,
 ) -> ChatMessage:
     message = store_ai_message(db, chat_session_id, content, agent_name=agent_name)
     if not message:
@@ -125,7 +126,7 @@ def persist_ai_message(
     return message
 
 
-def latest_message_id(db_messages: list[ChatMessage]) -> Optional[int]:
+def latest_message_id(db_messages: list[ChatMessage]) -> int | None:
     if not db_messages:
         return None
     return db_messages[-1].id
@@ -148,4 +149,4 @@ def build_account_id(auth: dict) -> int:
 
 def ensure_matching_swarm(_: LanggraphSwarmConfigInput) -> None:
     """Placeholder for future DB-backed swarm validation."""
-    return None
+    return

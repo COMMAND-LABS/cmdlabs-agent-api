@@ -4,24 +4,24 @@ Agent Tools
 Registry + factory for creating LangChain tools from an agent config.
 Add a new tool type by writing a builder module and registering it below.
 """
+from .contact_crm import (
+    create_contact_event_write_tool,
+    create_contact_events_read_tool,
+    create_contact_read_tool,
+)
+from .db_read import create_db_read_tool
+from .db_write import create_db_write_tool
+from .exceptions import CredentialError
 from .factory import create_tools_from_agent_config
 from .registry import ToolRegistry
-from .exceptions import CredentialError
+from .send_email_google_oauth import create_send_email_google_oauth_tool
+from .send_email_google_smtp import create_send_email_google_smtp_tool
+from .send_email_with_ses import create_send_email_with_ses_tool
+from .send_html_email_with_ses import create_send_html_email_with_ses_tool
 
 # ── Register all built-in tool types ────────────────────────────────────────
 from .vector_search import create_vector_search_tool
 from .vector_search_with_reranking import create_vector_search_with_reranking_tool
-from .db_read import create_db_read_tool
-from .db_write import create_db_write_tool
-from .send_email_with_ses import create_send_email_with_ses_tool
-from .send_html_email_with_ses import create_send_html_email_with_ses_tool
-from .send_email_google_oauth import create_send_email_google_oauth_tool
-from .send_email_google_smtp import create_send_email_google_smtp_tool
-from .contact_crm import (
-    create_contact_read_tool,
-    create_contact_events_read_tool,
-    create_contact_event_write_tool,
-)
 
 ToolRegistry.register("vectorSearch", create_vector_search_tool)
 ToolRegistry.register("vectorSearchWithReranking", create_vector_search_with_reranking_tool)
@@ -36,7 +36,7 @@ ToolRegistry.register("contactEventsRead", create_contact_events_read_tool)
 ToolRegistry.register("contactEventWrite", create_contact_event_write_tool)
 
 __all__ = [
-    "create_tools_from_agent_config",
-    "ToolRegistry",
     "CredentialError",
+    "ToolRegistry",
+    "create_tools_from_agent_config",
 ]
