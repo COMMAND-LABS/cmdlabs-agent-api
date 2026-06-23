@@ -27,36 +27,47 @@ ENCRYPTION_KEY_OLD_ENV = os.getenv("CREDENTIALS_ENCRYPTION_KEY_OLD", "")
 
 def get_encryption_keys() -> list[bytes]:
     """
-    Get encryption keys for Fernet.
-    Returns a list of keys: [current_key, old_key1, old_key2, ...]
-    The first key is used for encryption, all keys are tried for decryption.
+    Get Fernet keys: ``[current_key, old_key1, ...]``. The first key encrypts;
+    all keys are tried for decryption (key-rotation support).
+
+    Fails fast if ``CREDENTIALS_ENCRYPTION_KEY`` is missing or malformed. We
+    deliberately never fall back to a generated key: doing so would silently
+    encrypt credentials under an ephemeral key that is lost on restart, making
+    every credential written in that window permanently unrecoverable.
     """
-    keys = []
+    if not ENCRYPTION_KEY_ENV:
+        raise RuntimeError(
+            "CREDENTIALS_ENCRYPTION_KEY is not set. Refusing to proceed — "
+            "generating an ephemeral key would make stored credentials "
+            "unrecoverable after a restart. Set CREDENTIALS_ENCRYPTION_KEY to a "
+            "urlsafe-base64-encoded 32-byte Fernet key."
+        )
 
-    # Get current/primary key
-    if ENCRYPTION_KEY_ENV:
-        try:
-            keys.append(ENCRYPTION_KEY_ENV.encode())
-        except Exception:
-            key = Fernet.generate_key()
-            logger.warning(f"WARNING: Invalid encryption key format. Generated new key: {key.decode()}")
-            keys.append(key)
-    else:
-        # Generate a new key (for development only)
-        logger.warning("WARNING: CREDENTIALS_ENCRYPTION_KEY not set. Generating a new key.")
-        logger.warning("This key should be saved and set as an environment variable.")
-        key = Fernet.generate_key()
-        logger.warning(f"Generated key (save this): {key.decode()}")
-        keys.append(key)
+    current_key = ENCRYPTION_KEY_ENV.encode()
+    try:
+        Fernet(current_key)
+    except Exception as exc:
+        raise RuntimeError(
+            "CREDENTIALS_ENCRYPTION_KEY is not a valid Fernet key (expected a "
+            "urlsafe-base64-encoded 32-byte key)."
+        ) from exc
 
-    # Get old keys for decryption (for key rotation support)
+    keys = [current_key]
+
+    # Optional previous keys, tried only for decryption during key rotation.
     if ENCRYPTION_KEY_OLD_ENV:
-        old_keys = [k.strip() for k in ENCRYPTION_KEY_OLD_ENV.split(",") if k.strip()]
+        old_keys = (k.strip() for k in ENCRYPTION_KEY_OLD_ENV.split(",") if k.strip())
         for old_key in old_keys:
+            old_key_bytes = old_key.encode()
             try:
-                keys.append(old_key.encode())
+                Fernet(old_key_bytes)
             except Exception:
-                logger.warning(f"WARNING: Invalid old encryption key format, skipping: {old_key[:20]}...")
+                logger.warning(
+                    "Ignoring an invalid CREDENTIALS_ENCRYPTION_KEY_OLD entry "
+                    "(not a valid Fernet key)."
+                )
+                continue
+            keys.append(old_key_bytes)
 
     return keys
 
@@ -92,18 +103,16 @@ _fernet: Fernet | None = None
 _multi_fernet: MultiFernet | None = None
 
 def _ensure_ciphers_initialized():
-    """Ensure ciphers are initialized."""
+    """Initialize the encryption/decryption ciphers once (lazy).
+
+    Propagates the ``RuntimeError`` from :func:`get_encryption_keys` if the key
+    is missing or invalid. We deliberately do NOT fall back to a generated key —
+    that would silently lose every credential written before the next restart.
+    """
     global _fernet, _multi_fernet
     if _fernet is None or _multi_fernet is None:
-        try:
-            _fernet = _get_fernet_cipher()
-            _multi_fernet = _get_multi_fernet_cipher()
-        except Exception:
-            # Fallback: generate a new key if initialization fails
-            key = Fernet.generate_key()
-            _fernet = Fernet(key)
-            _multi_fernet = MultiFernet([_fernet])
-            logger.warning(f"WARNING: Using generated encryption key: {key.decode()}")
+        _fernet = _get_fernet_cipher()
+        _multi_fernet = _get_multi_fernet_cipher()
 
 # =============================================================================
 # NEW FLEXIBLE CREDENTIAL ENCRYPTION FUNCTIONS
