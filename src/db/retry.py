@@ -1,7 +1,7 @@
 """Transient DB error retry helper.
 
-Shared across agents and swarms routers to handle SSL/connection resets
-that occur intermittently with Supabase poolers and Cloud Run cold starts.
+Used by the agent routers to handle SSL/connection resets that occur
+intermittently with Supabase poolers and Cloud Run cold starts.
 """
 
 import contextlib

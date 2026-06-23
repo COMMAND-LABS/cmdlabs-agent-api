@@ -13,7 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from src.logging_config import configure_logging
 from src.middleware.dynamic_cors import DynamicCORSMiddleware
 from src.ratelimit import limiter
-from src.routers import healthcheck, swarms
+from src.routers import healthcheck
 from src.routers.agents.contact_chat import router as contact_chat_router
 from src.routers.agents.router import router as agents_router
 
@@ -63,4 +63,3 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(healthcheck.router, prefix="")
 app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(contact_chat_router, prefix="/api/contact-chat", tags=["Contact Chat"])
-app.include_router(swarms.router, prefix="/api/swarms", tags=["Swarm"])
