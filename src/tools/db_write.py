@@ -4,7 +4,7 @@ Database Write Tool
 Provides write access to external database tables via stored credentials.
 Allows agents to insert records into user-configured databases.
 """
-from typing import Dict, Any, Optional, List, TypedDict
+from typing import Dict, Any, Optional, TypedDict
 from langchain_core.tools import StructuredTool
 from pydantic import Field, create_model
 from sqlalchemy.orm import Session
@@ -123,7 +123,7 @@ async def create_db_write_tool(
     
     # Validate the table exists and get its columns
     try:
-        with external_engine.connect() as conn:
+        with external_engine.connect():
             inspector = inspect(external_engine)
             tables = inspector.get_table_names()
             

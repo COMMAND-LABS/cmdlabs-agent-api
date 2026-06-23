@@ -164,7 +164,7 @@ async def stream_request(
         return
 
     if provider == "anthropic":
-        system, chat_messages = _anthropic_payload(messages)
+        system, chat_messages = _anthropic_payload(request.messages)
         client = AsyncAnthropic(api_key=api_key)
         request_body = {
             "model": model,

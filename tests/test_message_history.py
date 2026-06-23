@@ -38,14 +38,14 @@ def test_build_history_skips_malformed():
 
 
 def test_store_user_message(mock_db):
-    result = store_user_message(mock_db, session_id=1, prompt="hello", validate=False)
+    store_user_message(mock_db, session_id=1, prompt="hello", validate=False)
     mock_db.add.assert_called_once()
     mock_db.commit.assert_called_once()
 
 
 def test_store_ai_message_with_tool_calls(mock_db):
     calls = [{"toolType": "vectorSearch", "toolName": "search"}]
-    result = store_ai_message(mock_db, session_id=1, content="here are the results", tool_calls=calls, validate=False)
+    store_ai_message(mock_db, session_id=1, content="here are the results", tool_calls=calls, validate=False)
     mock_db.add.assert_called_once()
     added = mock_db.add.call_args[0][0]
     assert added.message["toolCalls"] == calls

@@ -3,7 +3,6 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from .database import Base
 from .service_name import ServiceName
-import datetime
 import uuid
 
 class Account(Base):

@@ -10,7 +10,6 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, text, inspect
-from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 from src.db.models import Credential
 from src.routers.credentials.encryption import decrypt_credential_data
@@ -177,7 +176,7 @@ async def create_db_read_tool(
     
     # Validate the table exists and get its columns
     try:
-        with external_engine.connect() as conn:
+        with external_engine.connect():
             inspector = inspect(external_engine)
             tables = inspector.get_table_names()
             

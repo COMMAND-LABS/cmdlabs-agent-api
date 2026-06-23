@@ -1,6 +1,6 @@
 """Tests for agent access control logic."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from types import SimpleNamespace
 
 from src.routers.agents.access import can_access_agent, load_agent_with_access_check

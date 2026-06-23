@@ -5,7 +5,7 @@ A simple dict-backed registry mapping tool type strings to their async builder
 functions. Builders are registered at startup (see tools/__init__.py) and looked
 up at runtime by the factory.
 """
-from typing import Dict, Callable, Any, Optional
+from typing import Dict, Callable, Optional
 from langchain_core.tools import StructuredTool
 
 ToolBuilder = Callable[..., StructuredTool]

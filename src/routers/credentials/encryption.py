@@ -94,7 +94,7 @@ def _ensure_ciphers_initialized():
         try:
             _fernet = _get_fernet_cipher()
             _multi_fernet = _get_multi_fernet_cipher()
-        except Exception as e:
+        except Exception:
             # Fallback: generate a new key if initialization fails
             key = Fernet.generate_key()
             _fernet = Fernet(key)
