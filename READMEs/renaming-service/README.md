@@ -87,7 +87,7 @@ gcloud beta run domain-mappings describe \
 
 ### 2f. Verify
 ```bash
-curl -v https://agent.kalygo.io/            # expect {"status":"OK!"}
+curl -v https://agent-api.kalygo.io/            # expect {"status":"OK!"}
 # app title should read "Kalygo3 Agent API":
 curl -s https://agent.kalygo.io/openapi.json | python -m json.tool | head
 ```
