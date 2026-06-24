@@ -51,12 +51,6 @@ def test_docs_endpoint(test_client):
     assert resp.status_code == 200
 
 
-def test_completion_requires_body(test_client):
-    client, _ = test_client
-    resp = client.post("/api/agents/1/completion")
-    assert resp.status_code == 422
-
-
 def test_stream_requires_body(test_client):
     client, _ = test_client
     resp = client.post("/api/agents/1/stream")

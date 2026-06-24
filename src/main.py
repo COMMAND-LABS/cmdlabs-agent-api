@@ -1,6 +1,7 @@
 """
 Completion API - streaming LLM completion microservice.
-Exposes only the agent completion endpoint for independent scaling.
+Exposes the streaming agent endpoints, split out from the main AI API for
+independent scaling.
 """
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status

@@ -1,7 +1,7 @@
 """Shared agent context preparation.
 
-Extracts the common setup logic used by both the streaming and
-non-streaming completion endpoints into a single place.
+Extracts the common setup logic used by the streaming agent endpoints
+(the generic agent stream and the contact-chat stream) into a single place.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ from src.utils.template_variables import (
 
 @dataclass
 class AgentContext:
-    """Everything the streaming / non-streaming endpoints need after setup."""
+    """Everything the streaming endpoints need after setup."""
 
     agent: Agent | None  # None on the code-defined (override) path
     account_id: int
@@ -95,7 +95,6 @@ async def prepare_agent_context(
     auth: dict,
     request: Request,
     callbacks: list,
-    streaming: bool = True,
     pdf_base64: str | None = None,
     pdf_filename: str | None = None,
     pdf_use_vision: bool = False,
@@ -107,7 +106,7 @@ async def prepare_agent_context(
     gcs_file_path: str | None = None,
     agent_config_override: dict | None = None,
 ) -> AgentContext:
-    """Build the full agent context shared by stream and completion endpoints.
+    """Build the full agent context shared by the streaming agent endpoints.
 
     Raises ``AgentSetupError`` for any user-facing failure.
     """
@@ -171,7 +170,6 @@ async def prepare_agent_context(
         llm, _ = create_llm(
             model_config=model_config,
             credentials=credentials,
-            streaming=streaming,
             temperature=0,
         )
     except ValueError as exc:
@@ -253,7 +251,7 @@ async def prepare_agent_context(
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
-        tagged_llm = llm.with_config({"tags": ["agent_llm"]}) if streaming else llm
+        tagged_llm = llm.with_config({"tags": ["agent_llm"]})
         if provider == "openai":
             agent_langchain = create_openai_tools_agent(tagged_llm, tools, prompt_template)
         else:
@@ -280,7 +278,7 @@ async def prepare_agent_context(
             agent=agent_langchain,
             tools=tools,
             memory=memory,
-            max_iterations=25 if streaming else 10,
+            max_iterations=25,
         ).with_config({
             "run_name": "Agent",
             "callbacks": callbacks,

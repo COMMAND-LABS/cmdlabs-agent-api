@@ -4,8 +4,18 @@ Streaming LLM completion microservice. Handles agent completion (streaming token
 
 ## Endpoints
 
+All `/api` endpoints accept unified auth — a JWT cookie or a `kalygo_` API key
+(via `Authorization: Bearer` or `X-API-Key`).
+
 - `GET /` – Health check
-- `POST /api/agents/{agent_id}/completion` – Stream completion (SSE). Same request/response contract as the main AI API completion endpoint.
+- `POST /api/agents/{agent_id}/stream` – Stream an agent completion as Server-Sent
+  Events (tokens, tool calls, RAG, file uploads), ending on `on_chain_end`.
+- `GET /api/agents/{agent_id}` – Read an agent's configuration (owner or granted access).
+- `POST /api/contact-chat/{session_id}/stream` – Stream the code-defined,
+  contact-scoped CRM agent for a session (no `agent_id`; the path `session_id` is authoritative).
+
+Interactive API docs (Swagger UI) are served at `/api/docs`; the raw OpenAPI
+schema is at `/openapi.json`.
 
 ## Environment
 

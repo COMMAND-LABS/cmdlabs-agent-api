@@ -57,7 +57,6 @@ async def generator(
             auth=auth,
             request=request,
             callbacks=callbacks,
-            streaming=True,
             pdf_base64=pdf_base64,
             pdf_filename=pdf_filename,
             pdf_use_vision=pdf_use_vision,

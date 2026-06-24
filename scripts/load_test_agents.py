@@ -3,7 +3,7 @@
 Load-test the Agent Completion SSE endpoint.
 
 Simulates concurrent users sending prompts to
-POST /api/agents/{agent_id}/completion and consuming the
+POST /api/agents/{agent_id}/stream and consuming the
 Server-Sent Events stream until the final on_chain_end event.
 
 Usage
@@ -73,7 +73,7 @@ async def consume_sse(
     """Fire one completion request and consume the SSE stream."""
     import httpx
 
-    url = f"{base_url.rstrip('/')}/api/agents/{agent_id}/completion"
+    url = f"{base_url.rstrip('/')}/api/agents/{agent_id}/stream"
     payload = {"prompt": prompt, "sessionId": session_id}
 
     headers: dict[str, str] = {"Content-Type": "application/json"}

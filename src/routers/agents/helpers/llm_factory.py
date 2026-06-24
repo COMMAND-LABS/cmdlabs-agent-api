@@ -35,17 +35,15 @@ def get_model_config(agent_config: dict[str, Any]) -> dict[str, str]:
 def create_llm(
     model_config: dict[str, str],
     credentials: dict[str, str],
-    streaming: bool = True,
     temperature: float = 0,
 ) -> tuple[BaseChatModel, str]:
     """
-    Create a LangChain LLM instance based on model configuration.
+    Create a streaming LangChain LLM instance based on model configuration.
 
     Args:
         model_config: Dict with 'provider' and 'model' keys
         credentials: Dict mapping provider names to API keys
                     e.g., {'openai': 'sk-...', 'anthropic': 'sk-ant-...'}
-        streaming: Whether to enable streaming
         temperature: Model temperature (0-1)
 
     Returns:
@@ -58,21 +56,20 @@ def create_llm(
     model = model_config.get('model', 'gpt-4o-mini')
 
     if provider == 'openai':
-        return _create_openai_llm(model, credentials, streaming, temperature), provider
+        return _create_openai_llm(model, credentials, temperature), provider
     if provider == 'anthropic':
-        return _create_anthropic_llm(model, credentials, streaming, temperature), provider
+        return _create_anthropic_llm(model, credentials, temperature), provider
     if provider == 'google':
-        return _create_google_llm(model, credentials, streaming, temperature), provider
+        return _create_google_llm(model, credentials, temperature), provider
     if provider == 'ollama':
-        return _create_ollama_llm(model, streaming, temperature), provider
+        return _create_ollama_llm(model, temperature), provider
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
 def _create_openai_llm(
     model: str,
     credentials: dict[str, str],
-    streaming: bool,
-    temperature: float
+    temperature: float,
 ) -> BaseChatModel:
     """Create OpenAI LLM instance."""
     from langchain_openai import ChatOpenAI
@@ -84,7 +81,7 @@ def _create_openai_llm(
     return ChatOpenAI(
         model=model,
         api_key=api_key,
-        streaming=streaming,
+        streaming=True,
         temperature=temperature,
         stream_usage=True,
         model_kwargs={"parallel_tool_calls": False},
@@ -94,8 +91,7 @@ def _create_openai_llm(
 def _create_anthropic_llm(
     model: str,
     credentials: dict[str, str],
-    streaming: bool,
-    temperature: float
+    temperature: float,
 ) -> BaseChatModel:
     """Create Anthropic LLM instance."""
     from langchain_anthropic import ChatAnthropic
@@ -107,7 +103,7 @@ def _create_anthropic_llm(
     return ChatAnthropic(
         model=model,
         api_key=api_key,
-        streaming=streaming,
+        streaming=True,
         temperature=temperature,
     )
 
@@ -115,8 +111,7 @@ def _create_anthropic_llm(
 def _create_google_llm(
     model: str,
     credentials: dict[str, str],
-    streaming: bool,
-    temperature: float
+    temperature: float,
 ) -> BaseChatModel:
     """Create Google Gemini LLM instance."""
     from langchain_google_genai import ChatGoogleGenerativeAI
@@ -128,15 +123,14 @@ def _create_google_llm(
     return ChatGoogleGenerativeAI(
         model=model,
         google_api_key=api_key,
-        streaming=streaming,
+        streaming=True,
         temperature=temperature,
     )
 
 
 def _create_ollama_llm(
     model: str,
-    streaming: bool,
-    temperature: float
+    temperature: float,
 ) -> BaseChatModel:
     """Create Ollama LLM instance."""
     import os
@@ -149,7 +143,7 @@ def _create_ollama_llm(
     return ChatOllama(
         model=model,
         base_url=base_url,
-        streaming=streaming,
+        streaming=True,
         temperature=temperature,
     )
 
