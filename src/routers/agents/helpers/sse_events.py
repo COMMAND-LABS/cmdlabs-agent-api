@@ -2,9 +2,20 @@
 Server-Sent Events (SSE) helpers for agent completion.
 
 Provides consistent formatting for SSE events sent to the client.
+
+Each event is emitted as a standard SSE frame: a single ``data:`` line holding
+the compact JSON payload, terminated by a blank line (``\\n\\n``). This lets
+clients use off-the-shelf SSE parsers instead of hand-rolled JSON-boundary
+scanning. The ``event`` type stays inside the JSON payload (not the SSE
+``event:`` line) so the client reads it uniformly from the parsed object.
 """
 import json
 from typing import Any
+
+
+def _frame(payload: dict[str, Any]) -> str:
+    """Wrap a payload dict as a standard SSE ``data:`` frame."""
+    return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 def sse_event(
@@ -14,7 +25,7 @@ def sse_event(
     run_id: str | None = None,
 ) -> str:
     """
-    Create a JSON-encoded SSE event.
+    Create a standard SSE event frame (``data: <json>\\n\\n``).
 
     Args:
         event: The event type (e.g., "on_chain_start", "on_chat_model_stream")
@@ -23,7 +34,7 @@ def sse_event(
         run_id: Optional LangChain run ID for correlating on_tool_start / on_tool_end pairs
 
     Returns:
-        JSON string ready to be yielded in a StreamingResponse
+        SSE frame string ready to be yielded in a StreamingResponse
     """
     payload: dict[str, Any] = {"event": event}
 
@@ -36,27 +47,27 @@ def sse_event(
     if tool_calls:  # only include when non-empty
         payload["toolCalls"] = tool_calls
 
-    return json.dumps(payload, separators=(',', ':'))
+    return _frame(payload)
 
 
 def sse_error(error: str, message: str) -> str:
     """
-    Create a JSON-encoded SSE error event.
+    Create a standard SSE error event frame (``data: <json>\\n\\n``).
 
     Args:
         error: Short error type/code
         message: Human-readable error message
 
     Returns:
-        JSON string for an error event
+        SSE frame string for an error event
     """
-    return json.dumps({
+    return _frame({
         "event": "error",
         "data": {
             "error": error,
             "message": message
         }
-    }, separators=(',', ':'))
+    })
 
 
 # Common event types as constants for consistency

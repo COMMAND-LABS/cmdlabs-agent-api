@@ -909,7 +909,7 @@ wheels = [
 ]
 
 [[package]]
-name = "kalygo3-completion-api"
+name = "kalygo3-agent-api"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
