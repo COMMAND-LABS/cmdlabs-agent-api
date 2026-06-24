@@ -67,7 +67,13 @@ jobs:
       # END - Docker auth and build
 
       - name: Replace Cloud Run Service
-        run: gcloud run services replace service.yaml --region $SERVICE_REGION
+        run: |-
+          # service.yaml references the image untagged (resolves to :latest),
+          # but CI only ever pushes :${sha}. Pin this build's SHA into the spec
+          # so deploys don't depend on a floating :latest existing in the repo
+          # (a fresh Artifact Registry repo has none).
+          sed -i "s|image: ${ARTIFACTORY_URL}\$|image: ${ARTIFACTORY_URL}:${{ github.sha }}|" service.yaml
+          gcloud run services replace service.yaml --region $SERVICE_REGION
 
       - name: Deploy to Cloud Run
         run: |

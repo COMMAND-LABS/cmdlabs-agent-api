@@ -48,10 +48,15 @@ gcloud artifacts repositories create kalygo-agent-api \
 Push to `main` (CI builds the image into `kalygo-agent-api` and deploys
 `kalygo-agent-api-service`), or do it by hand:
 ```bash
-IMG=us-central1-docker.pkg.dev/kalygo-436411/kalygo-agent-api/kalygo-agent-api:manual
-docker build -f Dockerfile.prod -t "$IMG" .
-docker push "$IMG"
+REPO=us-central1-docker.pkg.dev/kalygo-436411/kalygo-agent-api/kalygo-agent-api
+TAG=manual-$(date +%s)
+docker build -f Dockerfile.prod -t "$REPO:$TAG" .
+docker push "$REPO:$TAG"
+# service.yaml references the image untagged; pin this tag before replace
+# (a fresh repo has no :latest — see the same step in cicd.yaml).
+sed -i "s|image: $REPO\$|image: $REPO:$TAG|" service.yaml
 gcloud run services replace service.yaml --region us-east1 --project kalygo-436411
+git checkout service.yaml   # discard the local pin
 ```
 The old `kalygo-completion-api-service` keeps running and serving
 `completion.kalygo.io` — untouched.
