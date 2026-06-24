@@ -5,6 +5,7 @@ Database Read Tool
 Provides read access to external database tables via stored credentials.
 Allows agents to query structured data from user-configured databases.
 """
+import asyncio
 import logging
 from typing import Any, TypedDict
 
@@ -104,6 +105,75 @@ def get_connection_string(credential_id: int, account_id: int, db: Session) -> s
         raise CredentialError(f"Failed to decrypt credential {credential_id}: {e}") from e
 
 
+def _connect_and_reflect_read(
+    connection_string: str,
+    credential_id: int,
+    table_name: str,
+    allowed_columns: list[str],
+) -> tuple[Any, list[str]]:
+    """Build the external engine, reflect the table schema, and validate columns.
+
+    This is the slow part of tool setup: blocking network I/O (connect + schema
+    reflection), often several seconds. It is extracted as a plain sync function
+    so it can run via ``asyncio.to_thread`` and overlap with other tools being
+    built concurrently. It touches only its own engine — never the shared
+    request ``Session`` — so it is safe to run off the event-loop thread.
+
+    Returns the live engine and the resolved list of selectable columns.
+    """
+    # Use NullPool to avoid creating persistent connection pools for each tool
+    # Connections are created/closed on each query - better for tools that run infrequently
+    try:
+        external_engine = create_engine(
+            connection_string,
+            poolclass=NullPool,  # No persistent pool - connections close after each use
+            pool_pre_ping=True
+        )
+        logger.info(f"[DB READ TOOL] Created connection to external database for table: {table_name}")
+    except Exception as e:
+        raise CredentialError(
+            f"Failed to connect to database using credential {credential_id}: {e}"
+        ) from e
+
+    # Validate the table exists and get its columns
+    try:
+        with external_engine.connect():
+            inspector = inspect(external_engine)
+            tables = inspector.get_table_names()
+
+            if table_name not in tables:
+                available = tables[:10]
+                raise ValueError(
+                    f"Table '{table_name}' not found in database. "
+                    f"Available tables: {available}{'...' if len(tables) > 10 else ''}"
+                )
+
+            # Get actual column names from the table
+            table_columns = [col['name'] for col in inspector.get_columns(table_name)]
+            logger.debug(f"[DB READ TOOL] Table '{table_name}' columns: {table_columns}")
+
+            # Validate allowed_columns exist in the table
+            if allowed_columns:
+                invalid_columns = [col for col in allowed_columns if col not in table_columns]
+                if invalid_columns:
+                    raise ValueError(
+                        f"Invalid columns specified: {invalid_columns}. "
+                        f"Available columns in '{table_name}': {table_columns}"
+                    )
+                selected_columns = allowed_columns
+            else:
+                # If no columns specified, use all columns (not recommended for security)
+                logger.warning("[DB READ TOOL] ⚠️ Warning: No columns specified, exposing all columns")
+                selected_columns = table_columns
+
+    except (CredentialError, ValueError):
+        raise
+    except Exception as e:
+        raise ValueError(f"Failed to validate table '{table_name}': {e}") from e
+
+    return external_engine, selected_columns
+
+
 async def create_db_read_tool(
     tool_config: dict[str, Any],
     account_id: int,
@@ -158,59 +228,40 @@ async def create_db_read_tool(
     # do NOT do this — write access requires the caller's own credentials.
     credential_account_id = kwargs.get('agent_owner_account_id', account_id)
 
-    # Get the connection string from the credential (raises CredentialError if fails)
+    # Get the connection string from the credential (raises CredentialError if fails).
+    # This uses the shared request Session, so it stays on the event-loop thread.
     connection_string = get_connection_string(credential_id, credential_account_id, db)
 
-    # Create the database engine for the external database
-    # Use NullPool to avoid creating persistent connection pools for each tool
-    # Connections are created/closed on each query - better for tools that run infrequently
-    try:
-        external_engine = create_engine(
+    if allowed_columns:
+        # Config-trust path (the common, recommended case): the agent config
+        # already declares which columns to expose, fixed when the agent was
+        # configured. We skip the live schema reflection entirely and build the
+        # engine lazily — no connect, no inspect — so there is no multi-second
+        # round trip on the request path. An invalid table/column surfaces as a
+        # clear error on first query. Needs no per-instance cache, so it behaves
+        # identically on every Cloud Run instance and across cold starts.
+        try:
+            external_engine = create_engine(
+                connection_string,
+                poolclass=NullPool,
+                pool_pre_ping=True,
+            )
+        except Exception as e:
+            raise CredentialError(
+                f"Failed to connect to database using credential {credential_id}: {e}"
+            ) from e
+        selected_columns = allowed_columns
+    else:
+        # No column allow-list configured: we must reflect the table to discover
+        # its columns. This blocking connect+reflect runs in a worker thread so
+        # tools still build concurrently (see create_tools_from_agent_config).
+        external_engine, selected_columns = await asyncio.to_thread(
+            _connect_and_reflect_read,
             connection_string,
-            poolclass=NullPool,  # No persistent pool - connections close after each use
-            pool_pre_ping=True
+            credential_id,
+            table_name,
+            allowed_columns,
         )
-        logger.info(f"[DB READ TOOL] Created connection to external database for table: {table_name}")
-    except Exception as e:
-        raise CredentialError(
-            f"Failed to connect to database using credential {credential_id}: {e}"
-        ) from e
-
-    # Validate the table exists and get its columns
-    try:
-        with external_engine.connect():
-            inspector = inspect(external_engine)
-            tables = inspector.get_table_names()
-
-            if table_name not in tables:
-                available = tables[:10]
-                raise ValueError(
-                    f"Table '{table_name}' not found in database. "
-                    f"Available tables: {available}{'...' if len(tables) > 10 else ''}"
-                )
-
-            # Get actual column names from the table
-            table_columns = [col['name'] for col in inspector.get_columns(table_name)]
-            logger.debug(f"[DB READ TOOL] Table '{table_name}' columns: {table_columns}")
-
-            # Validate allowed_columns exist in the table
-            if allowed_columns:
-                invalid_columns = [col for col in allowed_columns if col not in table_columns]
-                if invalid_columns:
-                    raise ValueError(
-                        f"Invalid columns specified: {invalid_columns}. "
-                        f"Available columns in '{table_name}': {table_columns}"
-                    )
-                selected_columns = allowed_columns
-            else:
-                # If no columns specified, use all columns (not recommended for security)
-                logger.warning("[DB READ TOOL] ⚠️ Warning: No columns specified, exposing all columns")
-                selected_columns = table_columns
-
-    except (CredentialError, ValueError):
-        raise
-    except Exception as e:
-        raise ValueError(f"Failed to validate table '{table_name}': {e}") from e
 
     logger.info(f"[DB READ TOOL] Tool 'db_table_read' ready for table: {table_name} (columns: {selected_columns})")
 

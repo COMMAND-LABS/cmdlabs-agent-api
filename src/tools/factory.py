@@ -3,6 +3,7 @@ Tool Factory
 
 Dynamically creates LangChain StructuredTool instances from a v4 agent config.
 """
+import asyncio
 import logging
 from typing import Any
 
@@ -66,17 +67,23 @@ async def create_tools_from_agent_config(
     """
     tool_configs = _extract_tool_configs(agent_config)
 
-    tools = []
-    for cfg in tool_configs:
-        tool = await _build_tool(
+    # Build all tools concurrently. Each builder offloads its slow, blocking
+    # connect + schema-reflection work to a worker thread (asyncio.to_thread),
+    # so gathering here overlaps those waits instead of paying for them in
+    # series — a major win for agents with several DB-backed tools, which
+    # directly cuts time-to-first-token. _build_tool never raises (it logs and
+    # returns None on failure), so a single bad tool can't fail the gather.
+    built = await asyncio.gather(*(
+        _build_tool(
             tool_config=cfg,
             account_id=account_id,
             db=db,
             auth_token=auth_token,
             **kwargs
         )
-        if tool:
-            tools.append(tool)
+        for cfg in tool_configs
+    ))
+    tools = [tool for tool in built if tool]
 
     logger.info(f"[TOOL FACTORY] {len(tools)}/{len(tool_configs)} tool(s) built.")
     return tools

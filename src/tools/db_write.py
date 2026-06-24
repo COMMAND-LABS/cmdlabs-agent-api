@@ -9,7 +9,7 @@ from typing import Any, Optional, TypedDict
 
 from langchain_core.tools import StructuredTool
 from pydantic import Field, create_model
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
@@ -107,53 +107,25 @@ async def create_db_write_tool(
     if invalid_required:
         raise ValueError(f"requiredColumns contains columns not in allowed columns: {invalid_required}")
 
-    # Get the connection string from the credential (raises CredentialError if fails)
+    # Get the connection string from the credential (raises CredentialError if fails).
     connection_string = get_connection_string(credential_id, account_id, db)
 
-    # Create the database engine for the external database
-    # Use NullPool to avoid creating persistent connection pools for each tool
-    # Connections are created/closed on each query - better for tools that run infrequently
+    # Config-trust path: dbTableWrite always declares its writable columns (see
+    # the validation above), fixed when the agent was configured. We skip the
+    # live schema reflection and build the engine lazily — no connect/inspect on
+    # the request path. An invalid table/column surfaces as a clear error on the
+    # first insert. No per-instance cache needed; identical on every Cloud Run
+    # instance and across cold starts.
     try:
         external_engine = create_engine(
             connection_string,
             poolclass=NullPool,  # No persistent pool - connections close after each use
-            pool_pre_ping=True
+            pool_pre_ping=True,
         )
-        logger.info(f"[DB WRITE TOOL] Created connection to external database for table: {table_name}")
     except Exception as e:
         raise CredentialError(
             f"Failed to connect to database using credential {credential_id}: {e}"
         ) from e
-
-    # Validate the table exists and get its columns
-    try:
-        with external_engine.connect():
-            inspector = inspect(external_engine)
-            tables = inspector.get_table_names()
-
-            if table_name not in tables:
-                available = tables[:10]
-                raise ValueError(
-                    f"Table '{table_name}' not found in database. "
-                    f"Available tables: {available}{'...' if len(tables) > 10 else ''}"
-                )
-
-            # Get actual column names from the table
-            table_columns = [col['name'] for col in inspector.get_columns(table_name)]
-            logger.debug(f"[DB WRITE TOOL] Table '{table_name}' columns: {table_columns}")
-
-            # Validate allowed_columns exist in the table
-            invalid_columns = [col for col in allowed_columns if col not in table_columns]
-            if invalid_columns:
-                raise ValueError(
-                    f"Invalid columns specified: {invalid_columns}. "
-                    f"Available columns in '{table_name}': {table_columns}"
-                )
-
-    except (CredentialError, ValueError):
-        raise
-    except Exception as e:
-        raise ValueError(f"Failed to validate table '{table_name}': {e}") from e
 
     logger.info(f"[DB WRITE TOOL] Tool 'db_table_write' ready for table: {table_name}")
     logger.debug(f"[DB WRITE TOOL] Allowed columns: {allowed_columns}")
