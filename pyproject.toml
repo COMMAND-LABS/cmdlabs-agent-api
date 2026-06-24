@@ -1,7 +1,7 @@
 [project]
-name = "kalygo3-completion-api"
+name = "kalygo3-agent-api"
 version = "0.1.0"
-description = "Kalygo3 Completion API - streaming LLM completion microservice"
+description = "Kalygo3 Agent API - streaming LLM completion microservice"
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [

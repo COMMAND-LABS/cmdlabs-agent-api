@@ -1,4 +1,4 @@
-# Kalygo3 Completion API
+# Kalygo3 Agent API
 
 Streaming LLM completion microservice. Handles agent completion (streaming tokens, tools, RAG) independently from the main AI API for better scalability.
 
@@ -35,7 +35,7 @@ Or with Docker Compose from the repo root:
 docker compose -f docker-compose.dev.yml up
 ```
 
-Completion API runs on port **4100** by default.
+Agent API runs on port **4100** by default.
 
 ## Testing
 
@@ -65,7 +65,7 @@ python scripts/load_test_sweep.py \
 
 ```sh
 python scripts/load_test_sweep.py \
-  --base-url https://completion.kalygo.io \
+  --base-url https://agent.kalygo.io \
   --agent-id 11 \
   --jwt "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0YWRAY21kbGFicy5pbyIsImlkIjoxLCJleHAiOjE3NzEyMzgyNDF9.XdxdC1JcX2-90WU3LpbX8Z4XpL7RPDd4oS-HRrvGot8" \
   --steps 1,2,4,8,12,16,20,24,32,48,64 \

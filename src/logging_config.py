@@ -1,4 +1,4 @@
-"""Central logging configuration for the Completion API.
+"""Central logging configuration for the Agent API.
 
 Historically this service wrote operational output via ``print`` straight to
 stdout. The application now logs through the stdlib ``logging`` module so that

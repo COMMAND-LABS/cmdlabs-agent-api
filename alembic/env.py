@@ -1,5 +1,5 @@
 """
-Alembic environment configuration for kalygo3-completion-api.
+Alembic environment configuration for kalygo3-agent-api.
 
 Reads the database URL from the POSTGRES_URL environment variable
 and uses the project's SQLAlchemy models for autogenerate support.

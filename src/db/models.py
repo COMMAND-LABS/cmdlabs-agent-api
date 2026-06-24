@@ -93,7 +93,7 @@ class ChatMessage(Base):
 
 # ---------------------------------------------------------------------------
 # CRM mirrors. The contacts / contact_events tables and their migrations are
-# owned by kalygo3-ai-api; these are the completion-api mirror models so the
+# owned by kalygo3-ai-api; these are the agent-api mirror models so the
 # contact-scoped agent tools can query the same shared database. Columns only
 # (no relationships) to keep the mirror minimal. If these drift from ai-api,
 # the contact-chat tools break — a test asserts the columns exist.
@@ -298,7 +298,7 @@ class Agent(Base):
 # ---------------------------------------------------------------------------
 # Access groups – allow agents to be shared with groups of accounts
 # Tables are created/migrated from kalygo3-ai-api; these models are the
-# completion-api mirror so SQLAlchemy can query the same shared database.
+# agent-api mirror so SQLAlchemy can query the same shared database.
 # ---------------------------------------------------------------------------
 
 class AccessGroup(Base):
@@ -419,7 +419,7 @@ class Prompt(Base):
 class EmailTemplate(Base):
     """
     Read-only mirror of the email_templates table managed by kalygo3-ai-api.
-    The completion-api queries this table to fetch templates for rendering
+    The agent-api queries this table to fetch templates for rendering
     before queuing a sendHtmlEmailWithSes approval.
     """
     __tablename__ = 'email_templates'
@@ -444,7 +444,7 @@ class PendingToolApproval(Base):
     """
     Written by HITL-gated tools (e.g. send_email) when they want to queue an
     action for human review.  The approval REST endpoints in kalygo3-ai-api
-    own the full lifecycle; the completion-api only ever *inserts* rows here.
+    own the full lifecycle; the agent-api only ever *inserts* rows here.
     """
     __tablename__ = 'pending_tool_approvals'
 

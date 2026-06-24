@@ -1,4 +1,4 @@
-"""H4 guard: completion-api must mirror ai-api's contacts / contact_events.
+"""H4 guard: agent-api must mirror ai-api's contacts / contact_events.
 
 The tables + migrations are owned by ai-api; these are hand-synced mirror
 models. Drift breaks the contact-chat tools only on that path, so assert the

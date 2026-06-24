@@ -1,12 +1,12 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: kalygo-completion-api-service
+  name: kalygo-agent-api-service
 spec:
   template:
     spec:
       containers:
-        - image: us-central1-docker.pkg.dev/kalygo-436411/kalygo-completion-api/kalygo-completion-api
+        - image: us-central1-docker.pkg.dev/kalygo-436411/kalygo-agent-api/kalygo-agent-api
           resources:
             limits:
               memory: "4Gi" # Sufficient for 100 concurrent requests with LLM operations

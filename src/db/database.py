@@ -34,7 +34,7 @@ engine_kwargs = {
         "keepalives_idle": 20,
         "keepalives_interval": 5,
         "keepalives_count": 3,
-        "application_name": "kalygo3-completion",
+        "application_name": "kalygo3-agent",
     },
 }
 

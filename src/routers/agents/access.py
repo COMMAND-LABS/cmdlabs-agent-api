@@ -2,7 +2,7 @@
 Agent access control.
 
 Single source of truth for "can this account use this agent?" in the
-completion API.  This is the completion-api mirror of the same logic in
+agent API.  This is the agent-api mirror of the same logic in
 kalygo3-ai-api.  If the access rules change, **update both**.
 
 Rule

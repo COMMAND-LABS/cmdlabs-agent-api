@@ -1,4 +1,4 @@
-"""H4 guard: the completion-api ChatSession model must mirror ai-api's
+"""H4 guard: the agent-api ChatSession model must mirror ai-api's
 contact_id column.
 
 The migration that adds chat_sessions.contact_id is owned by ai-api; this
@@ -14,7 +14,7 @@ from src.db.models import ChatSession
 def test_chat_session_has_contact_id_column():
     columns = ChatSession.__table__.columns
     assert "contact_id" in columns, (
-        "completion-api ChatSession is missing contact_id — it has drifted "
+        "agent-api ChatSession is missing contact_id — it has drifted "
         "from the ai-api model / migration."
     )
 

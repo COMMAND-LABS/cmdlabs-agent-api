@@ -7,9 +7,9 @@ on:
 env:
   PROJECT_ID: kalygo-436411 # Google Cloud project id
   GAR_LOCATION: us-central1 # Artifact Registry location
-  SERVICE_NAME: kalygo-completion-api-service # Cloud Run service name
+  SERVICE_NAME: kalygo-agent-api-service # Cloud Run service name
   SERVICE_REGION: us-east1 # Cloud Run service region
-  ARTIFACTORY_URL: us-central1-docker.pkg.dev/kalygo-436411/kalygo-completion-api/kalygo-completion-api
+  ARTIFACTORY_URL: us-central1-docker.pkg.dev/kalygo-436411/kalygo-agent-api/kalygo-agent-api
 
 jobs:
   test:
@@ -34,7 +34,7 @@ jobs:
           POSTGRES_URL: "postgresql://test:test@localhost:5432/test"
           AUTH_SECRET_KEY: "test-secret"
           AUTH_ALGORITHM: "HS256"
-          CREDENTIALS_ENCRYPTION_KEY: "dGVzdC1lbmNyeXB0aW9uLWtleS0xMjM0NQ=="
+          CREDENTIALS_ENCRYPTION_KEY: "dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcyEhISE="
           EMBEDDINGS_API_URL: "http://localhost:9100"
           RERANKER_API_URL: "http://localhost:7100"
         run: python -m pytest tests/ -v --tb=short

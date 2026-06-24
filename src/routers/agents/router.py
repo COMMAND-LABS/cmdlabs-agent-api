@@ -1,5 +1,5 @@
 """
-Agents router for the completion API.
+Agents router for the agent API.
 
 Aggregates all agent-related endpoints:
   - POST /{agent_id}/stream      — streaming LLM completion (SSE)

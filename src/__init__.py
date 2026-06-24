@@ -1,1 +1,1 @@
-# Kalygo3 Completion API
+# Kalygo3 Agent API

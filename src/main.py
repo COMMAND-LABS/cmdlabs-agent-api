@@ -1,5 +1,5 @@
 """
-Completion API - streaming LLM completion microservice.
+Agent API - streaming LLM completion microservice.
 Exposes the streaming agent endpoints, split out from the main AI API for
 independent scaling.
 """
@@ -22,7 +22,7 @@ load_dotenv()
 configure_logging()
 
 app = FastAPI(
-    title="Kalygo3 Completion API",
+    title="Kalygo3 Agent API",
     description="Streaming agent completion microservice",
     docs_url="/api/docs",
     redoc_url=None,
