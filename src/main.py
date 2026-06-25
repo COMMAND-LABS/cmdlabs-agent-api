@@ -32,7 +32,9 @@ app.root_path = ""
 
 jwt_allowed_origins = [
     "https://kalygo.io",
+    "https://bolay.kalygo.io",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3002",
     "http://localhost:3000",
     "https://kalygo-nextjs-service-830723611668.us-east1.run.app",
     "https://localhost:3000",
