@@ -335,6 +335,9 @@ class AccessGroupMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     access_group_id = Column(Integer, ForeignKey('access_groups.id', ondelete='CASCADE'), nullable=False, index=True)
     account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    # Mirror of the ai-api column ('admin' | 'member'). agent-api never reads it — the
+    # access check only needs membership existence — but the model matches the live table.
+    role = Column(String(50), nullable=False, server_default='member')
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
 
     access_group = relationship('AccessGroup', back_populates='members')
