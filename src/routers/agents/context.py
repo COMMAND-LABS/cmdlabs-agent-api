@@ -25,7 +25,7 @@ from langchain_core.tools import StructuredTool
 from src.db.database import SessionLocal
 from src.db.models import Agent, ChatMessage, ChatSession, Credential
 from src.db.retry import db_retry_once
-from src.routers.agents.access import load_agent_with_access_check
+from src.services.agent_access import load_agent_with_access_check
 from src.routers.agents.contact_agent_config import (
     CONTACT_AGENT_NAME,
     contact_session_required,

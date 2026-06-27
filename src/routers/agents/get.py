@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from src.db.models import Account, Agent
 from src.deps import auth_dependency, db_dependency
 from src.ratelimit import limiter
-from src.routers.agents.access import can_access_agent
+from src.services.agent_access import can_access_agent
 from src.routers.agents.models import AgentResponse
 
 logger = logging.getLogger(__name__)

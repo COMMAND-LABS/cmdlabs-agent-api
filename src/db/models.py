@@ -314,6 +314,9 @@ class AccessGroup(Base):
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
 
+    # NOTE: these ORM relationships are intentionally unused at runtime — all
+    # access code uses explicit db.query(...).join(...).filter(...). They exist
+    # only to document the schema, and their names may differ from ai-api's copy.
     owner = relationship('Account', foreign_keys=[owner_account_id])
     members = relationship('AccessGroupMember', back_populates='access_group', cascade='all, delete-orphan')
     agent_grants = relationship('AgentAccessGrant', back_populates='access_group', cascade='all, delete-orphan')
@@ -338,7 +341,7 @@ class AccessGroupMember(Base):
     account = relationship('Account')
 
     __table_args__ = (
-        UniqueConstraint('access_group_id', 'account_id', name='uq_access_group_member'),
+        UniqueConstraint('access_group_id', 'account_id', name='uq_access_group_members_group_account'),
     )
 
     def __repr__(self):
@@ -361,7 +364,7 @@ class AgentAccessGrant(Base):
     access_group = relationship('AccessGroup', back_populates='agent_grants')
 
     __table_args__ = (
-        UniqueConstraint('agent_id', 'access_group_id', name='uq_agent_access_grant'),
+        UniqueConstraint('agent_id', 'access_group_id', name='uq_agent_access_grants_agent_group'),
     )
 
     def __repr__(self):
