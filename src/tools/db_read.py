@@ -15,7 +15,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from src.db.models import Credential
+from src.services.credential_access import load_credential_for_use
 from src.routers.credentials.encryption import decrypt_credential_data
 from src.tools.exceptions import CredentialError
 
@@ -68,11 +68,8 @@ def get_connection_string(credential_id: int, account_id: int, db: Session) -> s
     Raises:
         CredentialError: If credential not found, unauthorized, wrong type, or decryption fails
     """
-    # Look up the credential (must belong to the account)
-    credential = db.query(Credential).filter(
-        Credential.id == credential_id,
-        Credential.account_id == account_id
-    ).first()
+    # Look up the credential by usage access (owned or shared with the account).
+    credential = load_credential_for_use(db, account_id, credential_id)
 
     if not credential:
         raise CredentialError(

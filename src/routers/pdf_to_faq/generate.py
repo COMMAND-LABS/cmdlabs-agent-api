@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from langchain_core.messages import SystemMessage
 
 from src.core.schemas.PdfToFaqRequest import FaqList, PdfToFaqRequest
-from src.db.models import Credential
+from src.services.credential_access import resolve_default_credential
 from src.deps import auth_dependency, db_dependency
 from src.ratelimit import limiter
 from src.routers.agents.helpers import create_llm, get_required_credential_type
@@ -57,14 +57,8 @@ async def generate_faq(
     credentials: dict[str, str] = {}
     required_credential_type = get_required_credential_type(provider)
     if required_credential_type:
-        credential = (
-            db.query(Credential)
-            .filter(
-                Credential.account_id == account_id,
-                Credential.credential_type == required_credential_type,
-            )
-            .first()
-        )
+        # Resolve the account's default provider credential (owned or shared).
+        credential = resolve_default_credential(db, account_id, required_credential_type)
         if not credential:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

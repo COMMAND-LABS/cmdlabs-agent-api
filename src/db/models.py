@@ -4,17 +4,20 @@ from sqlalchemy import (
     JSON,
     UUID,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Double,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from sqlalchemy.orm import relationship
@@ -176,10 +179,116 @@ class Credential(Base):
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     account = relationship('Account', back_populates='credentials')
+    access_grants = relationship('CredentialAccessGrant', back_populates='credential', cascade='all, delete-orphan')
 
     def __repr__(self):
         name = self.credential_name or self.credential_type
         return f'<Credential {name} ({self.auth_type}) for account {self.account_id}>'
+
+
+class CredentialAccessGrant(Base):
+    """
+    Shares a credential with EITHER an access group OR an individual account.
+
+    Mirror of the ai-api definition (kept in parity so the synced
+    credential_access.py service resolves identically in both services). Exactly
+    one of access_group_id / grantee_account_id is set, enforced by the check
+    constraint. Only the credential owner manages grants; recipients may USE the
+    credential but never receive the plaintext.
+    """
+    __tablename__ = 'credential_access_grants'
+
+    id = Column(Integer, primary_key=True, index=True)
+    credential_id = Column(Integer, ForeignKey('credentials.id', ondelete='CASCADE'), nullable=False, index=True)
+    access_group_id = Column(Integer, ForeignKey('access_groups.id', ondelete='CASCADE'), nullable=True, index=True)
+    grantee_account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            '(access_group_id IS NOT NULL)::int + (grantee_account_id IS NOT NULL)::int = 1',
+            name='ck_credential_grant_exactly_one_target',
+        ),
+        Index(
+            'uq_credential_grant_group',
+            'credential_id', 'access_group_id',
+            unique=True,
+            postgresql_where=text('access_group_id IS NOT NULL'),
+        ),
+        Index(
+            'uq_credential_grant_account',
+            'credential_id', 'grantee_account_id',
+            unique=True,
+            postgresql_where=text('grantee_account_id IS NOT NULL'),
+        ),
+    )
+
+    credential = relationship('Credential', back_populates='access_grants')
+    access_group = relationship('AccessGroup')
+    grantee = relationship('Account', foreign_keys=[grantee_account_id])
+
+    def __repr__(self):
+        target = f'group={self.access_group_id}' if self.access_group_id else f'account={self.grantee_account_id}'
+        return f'<CredentialAccessGrant credential={self.credential_id} {target}>'
+
+
+class CredentialDefault(Base):
+    """
+    A per-account, per-credential-type default selection (mirror of the ai-api
+    definition). At most one default per credential_type per account. The
+    credential_id FK cascades, so deleting a credential clears any default that
+    pointed at it.
+    """
+    __tablename__ = 'credential_defaults'
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    credential_type = Column(Enum(ServiceName, name='credential_type_enum', create_type=False), nullable=False, index=True)
+    credential_id = Column(Integer, ForeignKey('credentials.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('account_id', 'credential_type', name='uq_credential_default_account_type'),
+    )
+
+    account = relationship('Account', foreign_keys=[account_id])
+    credential = relationship('Credential', foreign_keys=[credential_id])
+
+    def __repr__(self):
+        return f'<CredentialDefault account={self.account_id} type={self.credential_type} -> credential={self.credential_id}>'
+
+
+class VectorStore(Base):
+    """
+    A knowledge base (Pinecone index) owned by an account with explicit
+    credential bindings (mirror of the ai-api definition — kept in parity so the
+    synced vector_store_credentials.py resolves identically in both services).
+
+    Nullable FKs fall back to the owner's default credential for that type when
+    unset; see services/vector_store_credentials.py.
+    """
+    __tablename__ = 'vector_stores'
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    index_name = Column(String, nullable=False, index=True)
+    display_name = Column(String(255), nullable=True)
+    pinecone_credential_id = Column(Integer, ForeignKey('credentials.id', ondelete='SET NULL'), nullable=True, index=True)
+    gcs_credential_id = Column(Integer, ForeignKey('credentials.id', ondelete='SET NULL'), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('owner_account_id', 'index_name', name='uq_vector_store_owner_index'),
+    )
+
+    owner = relationship('Account', foreign_keys=[owner_account_id])
+    pinecone_credential = relationship('Credential', foreign_keys=[pinecone_credential_id])
+    gcs_credential = relationship('Credential', foreign_keys=[gcs_credential_id])
+
+    def __repr__(self):
+        return f'<VectorStore owner={self.owner_account_id} index={self.index_name}>'
 
 
 class ApiKeyStatus(str, Enum):

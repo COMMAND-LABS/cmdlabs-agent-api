@@ -23,7 +23,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import StructuredTool
 
 from src.db.database import SessionLocal
-from src.db.models import Agent, ChatMessage, ChatSession, Credential
+from src.db.models import Agent, ChatMessage, ChatSession
 from src.db.retry import db_retry_once
 from src.services.agent_access import load_agent_with_access_check
 from src.routers.agents.contact_agent_config import (
@@ -40,6 +40,11 @@ from src.routers.agents.helpers import (
     store_user_message,
 )
 from src.routers.credentials.encryption import get_credential_value
+from src.services.credential_access import (
+    resolve_default_credential,
+    can_use_credential,
+    load_credential_for_use,
+)
 from src.tools import CredentialError, create_tools_from_agent_config
 from src.utils.pdf_to_images import (
     build_document_message,
@@ -166,12 +171,25 @@ async def prepare_agent_context(
     required_credential_type = get_required_credential_type(provider)
     credentials: dict[str, str] = {}
     if required_credential_type:
+        # Explicit binding wins: if the agent config pins a credentialId AND the
+        # funding account can use it (owner's own key, or one shared with a member
+        # running on the owner's credentials), use exactly that — no drift. Else
+        # fall back to the funding account's default for the provider type.
+        pinned_credential_id = model_config.get("credentialId")
+
+        def _load_completion_credential():
+            if pinned_credential_id is not None and can_use_credential(
+                db, completion_credential_account_id, pinned_credential_id
+            ):
+                return load_credential_for_use(
+                    db, completion_credential_account_id, pinned_credential_id
+                )
+            return resolve_default_credential(
+                db, completion_credential_account_id, required_credential_type
+            )
+
         credential = db_retry_once(
-            db, "load provider credential",
-            lambda: db.query(Credential).filter(
-                Credential.account_id == completion_credential_account_id,
-                Credential.credential_type == required_credential_type,
-            ).first(),
+            db, "load provider credential", _load_completion_credential
         )
         if not credential:
             # If this run is funded by the owner's credentials (shared agent) but

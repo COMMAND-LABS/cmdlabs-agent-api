@@ -25,10 +25,16 @@ def get_model_config(agent_config: dict[str, Any]) -> dict[str, str]:
     config_data = agent_config.get('data', {})
     model_config = config_data.get('model')
     if model_config:
-        return {
+        resolved = {
             "provider": model_config.get('provider', 'openai'),
             "model": model_config.get('model', 'gpt-4o-mini'),
         }
+        # Optional explicit credential binding for turn completions. When present
+        # it pins the exact credential (no drift); when absent the funding
+        # account's default for the provider type is resolved at runtime.
+        if model_config.get('credentialId') is not None:
+            resolved["credentialId"] = model_config["credentialId"]
+        return resolved
     return DEFAULT_MODEL_CONFIG.copy()
 
 

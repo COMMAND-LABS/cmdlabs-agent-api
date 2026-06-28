@@ -16,8 +16,9 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from src.db.models import Credential, PendingToolApproval
+from src.db.models import PendingToolApproval
 from src.routers.credentials.encryption import decrypt_credential_data
+from src.services.credential_access import load_credential_for_use
 from src.tools.exceptions import CredentialError
 
 logger = logging.getLogger(__name__)
@@ -89,10 +90,8 @@ def verify_credential(
 
     Raises ``CredentialError`` if anything is wrong.
     """
-    credential = db.query(Credential).filter(
-        Credential.id == credential_id,
-        Credential.account_id == account_id,
-    ).first()
+    # Usage access: owned or shared with the account (plaintext never leaves the server).
+    credential = load_credential_for_use(db, account_id, credential_id)
 
     if not credential:
         raise CredentialError(f"Credential {credential_id} not found or not accessible.")

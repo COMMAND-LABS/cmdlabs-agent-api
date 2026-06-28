@@ -12,9 +12,8 @@ from typing import Any
 import aiohttp
 from sqlalchemy.orm import Session
 
-from src.db.models import Credential
-from src.db.service_name import ServiceName
 from src.routers.credentials.encryption import get_credential_value
+from src.services.vector_store_credentials import resolve_index_pinecone_credential
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +42,9 @@ def load_pinecone_index(
 
     credential_account_id = kwargs.get("agent_owner_account_id", account_id)
 
-    credential = db.query(Credential).filter(
-        Credential.account_id == credential_account_id,
-        Credential.credential_type == ServiceName.PINECONE_API_KEY,
-    ).first()
+    # Honor the knowledge base's explicit Pinecone credential binding (falls back
+    # to the owner's default). Index-scoped so different KBs can use different keys.
+    credential = resolve_index_pinecone_credential(db, credential_account_id, index_name)
 
     if not credential:
         logger.warning(f"[VECTOR SEARCH] No Pinecone API key found for account {credential_account_id}")
