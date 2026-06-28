@@ -17,6 +17,7 @@ from src.ratelimit import limiter
 from src.routers import healthcheck
 from src.routers.agents.contact_chat import router as contact_chat_router
 from src.routers.agents.router import router as agents_router
+from src.routers.pdf_to_faq.router import router as pdf_to_faq_router
 
 load_dotenv()
 configure_logging()
@@ -66,3 +67,4 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(healthcheck.router, prefix="")
 app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(contact_chat_router, prefix="/api/contact-chat", tags=["Contact Chat"])
+app.include_router(pdf_to_faq_router, prefix="/api/pdf-to-faq", tags=["PDF to FAQ"])
