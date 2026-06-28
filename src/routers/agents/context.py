@@ -136,6 +136,24 @@ async def prepare_agent_context(
         agent_owner_account_id = agent.account_id
 
     config_data = agent_config.get("data", {})
+
+    # --- Turn-completion credential principal ---
+    # Which account's stored LLM provider credential funds this run's turn
+    # completions. The owner always runs on their own. A non-owner (group member
+    # accessing via an access-group grant) runs on the owner's credential only
+    # when the owner opted in via `shareOwnerCredentials`; otherwise the member
+    # uses their own. When the caller IS the owner, owner == caller so the flag
+    # is a no-op.
+    #
+    # Tool credentials are resolved separately, inside the tool builders, which
+    # already apply a deliberate per-tool policy (read/pinecone/email use the
+    # owner's credentials so shared members can use them; db_write uses the
+    # caller's). That policy is intentionally NOT governed by this flag.
+    share_owner_credentials = bool(config_data.get("shareOwnerCredentials", False))
+    completion_credential_account_id = (
+        agent_owner_account_id if share_owner_credentials else account_id
+    )
+
     system_prompt_raw = config_data.get("systemPrompt", "You are a helpful assistant.")
     var_context = build_variable_context(agent_name=agent_name)
     system_prompt = resolve_template_variables(system_prompt_raw, var_context).replace("{", "{{").replace("}", "}}")
@@ -151,15 +169,27 @@ async def prepare_agent_context(
         credential = db_retry_once(
             db, "load provider credential",
             lambda: db.query(Credential).filter(
-                Credential.account_id == account_id,
+                Credential.account_id == completion_credential_account_id,
                 Credential.credential_type == required_credential_type,
             ).first(),
         )
         if not credential:
-            raise AgentSetupError(
-                f"{provider.title()} API key required",
-                f"Please add your {provider.title()} API key in account settings to use {model_name}.",
-            )
+            # If this run is funded by the owner's credentials (shared agent) but
+            # the owner has not configured the provider key, the member cannot fix
+            # it — point them at the owner instead of "your account settings".
+            uses_owner_credentials = completion_credential_account_id != account_id
+            if uses_owner_credentials:
+                detail = (
+                    f"This shared agent runs on the owner's credentials, but the owner "
+                    f"has not configured a {provider.title()} API key for {model_name}. "
+                    f"Ask the agent owner to add it."
+                )
+            else:
+                detail = (
+                    f"Please add your {provider.title()} API key in account settings "
+                    f"to use {model_name}."
+                )
+            raise AgentSetupError(f"{provider.title()} API key required", detail)
         try:
             credentials[provider] = get_credential_value(credential, "api_key")
         except Exception as exc:
