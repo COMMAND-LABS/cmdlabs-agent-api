@@ -291,6 +291,39 @@ class VectorStore(Base):
         return f'<VectorStore owner={self.owner_account_id} index={self.index_name}>'
 
 
+class AccessGrant(Base):
+    """
+    Unified access grant (mirror of the ai-api definition — kept in parity so the
+    synced access.py resolver behaves identically). A PRINCIPAL ('account'|'group')
+    is granted a ROLE ('read'|'write'|'use') on a RESOURCE
+    ('agent'|'vector_store'|'credential'). See ai-api models for full docs.
+    """
+    __tablename__ = 'access_grants'
+
+    id = Column(Integer, primary_key=True, index=True)
+    principal_type = Column(String(20), nullable=False)
+    principal_id = Column(Integer, nullable=False)
+    resource_type = Column(String(20), nullable=False)
+    resource_id = Column(Integer, nullable=False)
+    role = Column(String(20), nullable=False, server_default='read')
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('principal_type', 'principal_id', 'resource_type', 'resource_id',
+                         name='uq_access_grant_principal_resource'),
+        CheckConstraint("principal_type IN ('account','group')", name='ck_access_grant_principal_type'),
+        CheckConstraint("resource_type IN ('agent','vector_store','credential')", name='ck_access_grant_resource_type'),
+        CheckConstraint("role IN ('read','write','use')", name='ck_access_grant_role'),
+        Index('ix_access_grants_resource', 'resource_type', 'resource_id'),
+        Index('ix_access_grants_principal', 'principal_type', 'principal_id'),
+    )
+
+    def __repr__(self):
+        return (f'<AccessGrant {self.principal_type}={self.principal_id} '
+                f'{self.role} {self.resource_type}={self.resource_id}>')
+
+
 class ApiKeyStatus(str, Enum):
     """Enumeration of API key statuses."""
     ACTIVE = "active"
