@@ -179,57 +179,11 @@ class Credential(Base):
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     account = relationship('Account', back_populates='credentials')
-    access_grants = relationship('CredentialAccessGrant', back_populates='credential', cascade='all, delete-orphan')
+    # Sharing lives in the unified access_grants table; see services/access.py.
 
     def __repr__(self):
         name = self.credential_name or self.credential_type
         return f'<Credential {name} ({self.auth_type}) for account {self.account_id}>'
-
-
-class CredentialAccessGrant(Base):
-    """
-    Shares a credential with EITHER an access group OR an individual account.
-
-    Mirror of the ai-api definition (kept in parity so the synced
-    credential_access.py service resolves identically in both services). Exactly
-    one of access_group_id / grantee_account_id is set, enforced by the check
-    constraint. Only the credential owner manages grants; recipients may USE the
-    credential but never receive the plaintext.
-    """
-    __tablename__ = 'credential_access_grants'
-
-    id = Column(Integer, primary_key=True, index=True)
-    credential_id = Column(Integer, ForeignKey('credentials.id', ondelete='CASCADE'), nullable=False, index=True)
-    access_group_id = Column(Integer, ForeignKey('access_groups.id', ondelete='CASCADE'), nullable=True, index=True)
-    grantee_account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
-
-    __table_args__ = (
-        CheckConstraint(
-            '(access_group_id IS NOT NULL)::int + (grantee_account_id IS NOT NULL)::int = 1',
-            name='ck_credential_grant_exactly_one_target',
-        ),
-        Index(
-            'uq_credential_grant_group',
-            'credential_id', 'access_group_id',
-            unique=True,
-            postgresql_where=text('access_group_id IS NOT NULL'),
-        ),
-        Index(
-            'uq_credential_grant_account',
-            'credential_id', 'grantee_account_id',
-            unique=True,
-            postgresql_where=text('grantee_account_id IS NOT NULL'),
-        ),
-    )
-
-    credential = relationship('Credential', back_populates='access_grants')
-    access_group = relationship('AccessGroup')
-    grantee = relationship('Account', foreign_keys=[grantee_account_id])
-
-    def __repr__(self):
-        target = f'group={self.access_group_id}' if self.access_group_id else f'account={self.grantee_account_id}'
-        return f'<CredentialAccessGrant credential={self.credential_id} {target}>'
 
 
 class CredentialDefault(Base):
@@ -431,7 +385,7 @@ class Agent(Base):
     config = Column(JSON, nullable=True)  # JSONB in PostgreSQL, JSON in SQLAlchemy
 
     chat_sessions = relationship('ChatSession', back_populates='agent', cascade='all, delete-orphan')
-    access_grants = relationship('AgentAccessGrant', back_populates='agent', cascade='all, delete-orphan')
+    # Sharing lives in access_grants (resource_type 'agent'); see services/access.py.
 
     def __repr__(self):
         return f'<Agent {self.id}: {self.name}>'
@@ -461,7 +415,7 @@ class AccessGroup(Base):
     # only to document the schema, and their names may differ from ai-api's copy.
     owner = relationship('Account', foreign_keys=[owner_account_id])
     members = relationship('AccessGroupMember', back_populates='access_group', cascade='all, delete-orphan')
-    agent_grants = relationship('AgentAccessGrant', back_populates='access_group', cascade='all, delete-orphan')
+    # Grants TO this group live in access_grants (principal_type 'group').
 
     def __repr__(self):
         return f'<AccessGroup {self.id}: {self.name}>'
@@ -491,29 +445,6 @@ class AccessGroupMember(Base):
 
     def __repr__(self):
         return f'<AccessGroupMember group={self.access_group_id} account={self.account_id}>'
-
-
-class AgentAccessGrant(Base):
-    """
-    Grant link: an agent is shared with an access group.
-    Only the agent owner can create/revoke grants (enforced at API layer).
-    """
-    __tablename__ = 'agent_access_grants'
-
-    id = Column(Integer, primary_key=True, index=True)
-    agent_id = Column(Integer, ForeignKey('agents.id', ondelete='CASCADE'), nullable=False, index=True)
-    access_group_id = Column(Integer, ForeignKey('access_groups.id', ondelete='CASCADE'), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
-
-    agent = relationship('Agent', back_populates='access_grants')
-    access_group = relationship('AccessGroup', back_populates='agent_grants')
-
-    __table_args__ = (
-        UniqueConstraint('agent_id', 'access_group_id', name='uq_agent_access_grants_agent_group'),
-    )
-
-    def __repr__(self):
-        return f'<AgentAccessGrant agent={self.agent_id} group={self.access_group_id}>'
 
 
 class Lead(Base):
