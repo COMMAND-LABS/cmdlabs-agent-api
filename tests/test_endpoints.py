@@ -30,10 +30,21 @@ def test_get_agent_found(test_client):
     call_count = [0]
     def query_side_effect(model):
         call_count[0] += 1
+        n = call_count[0]
         result = type("MockQuery", (), {})()
         result.filter = lambda *a, **kw: result
-        result.first = lambda: fake_account if call_count[0] == 1 else fake_agent
         result.join = lambda *a, **kw: result
+        if n == 1:
+            # get_agent: db.query(Account)...first()
+            result.first = lambda: fake_account
+        elif n == 2:
+            # get_agent: db.query(Agent)...first()
+            result.first = lambda: fake_agent
+        else:
+            # can_access_agent -> access._resource_owner does
+            # db.query(Agent.account_id)...first() and reads row[0]; returning
+            # the caller's id makes the owner short-circuit grant access.
+            result.first = lambda: (1,)
         return result
 
     mock_db.query.side_effect = query_side_effect

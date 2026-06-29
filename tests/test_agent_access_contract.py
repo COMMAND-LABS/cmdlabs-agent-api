@@ -24,7 +24,7 @@ from src.db.models import (
     Agent,
     AccessGroup,
     AccessGroupMember,
-    AgentAccessGrant,
+    AccessGrant,
 )
 from src.services.agent_access import (
     can_access_agent,
@@ -41,7 +41,7 @@ _DB_URL = os.environ.get("POSTGRES_TEST_URL") or os.environ.get("POSTGRES_URL", 
 _PROD_HOSTS = ("supabase.co", "neon.tech", "rds.amazonaws.com")
 _TABLES = [
     t.__table__
-    for t in (Account, Agent, AccessGroup, AccessGroupMember, AgentAccessGrant)
+    for t in (Account, Agent, AccessGroup, AccessGroupMember, AccessGrant)
 ]
 
 
@@ -87,7 +87,15 @@ def seed(db):
     db.add(AccessGroup(id=GROUP_UNGRANTED, name="Ungranted", owner_account_id=OWNER))
     db.add(AccessGroupMember(access_group_id=GROUP_GRANTED, account_id=MEMBER))
     db.add(AccessGroupMember(access_group_id=GROUP_UNGRANTED, account_id=MEMBER_NOGRANT))
-    db.add(AgentAccessGrant(agent_id=AGENT_ID, access_group_id=GROUP_GRANTED))
+    # Grant the agent to GROUP_GRANTED via the unified AccessGrant model.
+    # role="use" is required for agent access (see services/access.role_satisfies).
+    db.add(AccessGrant(
+        principal_type="group",
+        principal_id=GROUP_GRANTED,
+        resource_type="agent",
+        resource_id=AGENT_ID,
+        role="use",
+    ))
     db.flush()
     return db
 
