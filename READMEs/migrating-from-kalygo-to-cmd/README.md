@@ -5,7 +5,7 @@ Documenting process of migrating Kalygo into the cmdlabs project in GCP
 ## Add `GCP_SA` as a GitHub Repository Secret
 
 - Go to `https://console.cloud.google.com/iam-admin/iam?project=command-labs`
-- Create a "Service Account"
+- Create a "Service Account" [called `command-labs-agent-api-cicd`]
 - Download JSON associated with the "Service Account"
 - Add a Repository secret called `GCP_SA` with the Service Account JSON as the value
 
@@ -23,7 +23,7 @@ Documenting process of migrating Kalygo into the cmdlabs project in GCP
 
 ``` sh
 gcloud projects add-iam-policy-binding command-labs \
-  --member="serviceAccount:command-labs-api-cicd@command-labs.iam.gserviceaccount.com" \
+  --member="serviceAccount:command-labs-agent-api-cicd@command-labs.iam.gserviceaccount.com" \
   --role="roles/artifactregistry.writer"
 ```
 

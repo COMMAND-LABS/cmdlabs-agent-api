@@ -5,18 +5,18 @@ on:
     branches: ["main"]
 
 env:
-  PROJECT_ID: kalygo-436411 # Google Cloud project id
+  PROJECT_ID: command-labs # Google Cloud project id
   GAR_LOCATION: us-central1 # Artifact Registry location
-  SERVICE_NAME: kalygo-agent-api-service # Cloud Run service name
+  SERVICE_NAME: cmdlabs-agent-api-service # Cloud Run service name
   SERVICE_REGION: us-east1 # Cloud Run service region
-  ARTIFACTORY_URL: us-central1-docker.pkg.dev/kalygo-436411/kalygo-agent-api/kalygo-agent-api
+  ARTIFACTORY_URL: us-central1-docker.pkg.dev/command-labs/cmdlabs-agent-api/cmdlabs-agent-api
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,10 +45,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Google Cloud Auth
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@v3"
         with:
           credentials_json: "${{ secrets.GCP_SA_KEY }}"
           project_id: ${{ env.PROJECT_ID }}
