@@ -1,4 +1,4 @@
-# Kalygo3 Agent API
+# COMMAND LABS Agent API
 
 Streaming LLM completion microservice. Handles agent completion (streaming tokens, tools, RAG) independently from the main AI API for better scalability.
 
