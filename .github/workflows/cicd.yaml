@@ -72,7 +72,11 @@ jobs:
           # but CI only ever pushes :${sha}. Pin this build's SHA into the spec
           # so deploys don't depend on a floating :latest existing in the repo
           # (a fresh Artifact Registry repo has none).
-          sed -i "s|image: ${ARTIFACTORY_URL}\$|image: ${ARTIFACTORY_URL}:${{ github.sha }}|" service.yaml
+          # Match the image line by shape, not by its current value — a stale
+          # value in service.yaml must not silently no-op and ship the wrong image.
+          sed -i -E "s|^([[:space:]]*- image:).*|\1 ${ARTIFACTORY_URL}:${{ github.sha }}|" service.yaml
+          grep -q -- "- image: ${ARTIFACTORY_URL}:${{ github.sha }}" service.yaml \
+            || { echo "::error::failed to pin image in service.yaml"; exit 1; }
           gcloud run services replace service.yaml --region $SERVICE_REGION
 
       - name: Deploy to Cloud Run

@@ -1,12 +1,12 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: kalygo-agent-api-service
+  name: cmdlabs-agent-api-service
 spec:
   template:
     spec:
       containers:
-        - image: us-central1-docker.pkg.dev/kalygo-436411/kalygo-agent-api/kalygo-agent-api
+        - image: us-central1-docker.pkg.dev/command-labs/cmdlabs-agent-api/cmdlabs-agent-api
           resources:
             limits:
               memory: "4Gi" # Sufficient for 100 concurrent requests with LLM operations
