@@ -11,44 +11,31 @@ Documenting process of migrating Kalygo into the cmdlabs project in GCP
 
 ## Enable `Artifact Registry` in GCP project
 
-- `gcloud projects list`
-- `gcloud config set project command-labs`
-- `gcloud services enable artifactregistry.googleapis.com`
-
-## Create the artifact registry for storing the built docker images
-
-- `gcloud artifacts repositories create cmdlabs-api --repository-format docker --project command-labs --location us-central1`
-
-## Add `Artifact Registry - Writer` permissions
-
-``` sh
+`gcloud projects list`
+`gcloud config set project command-labs`
+`gcloud services enable artifactregistry.googleapis.com`
+```sh
 gcloud projects add-iam-policy-binding command-labs \
   --member="serviceAccount:command-labs-agent-api-cicd@command-labs.iam.gserviceaccount.com" \
   --role="roles/artifactregistry.writer"
 ```
-
-## Enable `Cloud Run` permissions
-
-- `gcloud services enable run.googleapis.com`
-
-
-## Add Cloud Run Admin perms to the CICD Service Account
-
+`gcloud services enable run.googleapis.com`
 ```sh
 gcloud projects add-iam-policy-binding command-labs \
-  --member="serviceAccount:command-labs-api-cicd@command-labs.iam.gserviceaccount.com" \
+  --member="serviceAccount:command-labs-agent-api-cicd@command-labs.iam.gserviceaccount.com" \
   --role="roles/run.admin"
 ```
-
-## Add perms for SA to assume "default compute" permissions
-
 ```sh
 gcloud iam service-accounts add-iam-policy-binding 382688591561-compute@developer.gserviceaccount.com \
-  --member="serviceAccount:command-labs-api-cicd@command-labs.iam.gserviceaccount.com" \
+  --member="serviceAccount:command-labs-agent-api-cicd@command-labs.iam.gserviceaccount.com" \
   --role="roles/iam.serviceAccountUser"
 ```
+`gcloud services enable secretmanager.googleapis.com --project=command-labs`
+
+## Create the artifact registry for storing the built docker images
+
+- `gcloud artifacts repositories create cmdlabs-agent-api --repository-format docker --project command-labs --location us-central1`
 
 ## Enable Google Secret Manager
 
-- `gcloud services enable secretmanager.googleapis.com --project=command-labs`
 - `./READMEs/deploying_to_command_labs/migrate_secrets.sh` <!-- Moved the secrets from the `kalygo` GCP project to the `command-labs` GCP project -->
