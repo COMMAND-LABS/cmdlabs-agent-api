@@ -69,6 +69,7 @@ async def generate_embedding(query: str, auth_token: str | None = None) -> list[
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
 
+    print("EMBEDDINGS_API_URL")
     print(f"{os.getenv('EMBEDDINGS_API_URL')}")
 
     url = f"{os.getenv('EMBEDDINGS_API_URL')}/huggingface/embedding"
