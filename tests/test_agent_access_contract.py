@@ -89,7 +89,7 @@ def seed(db):
     # sits in the root org.
     if not db.query(Organization).filter(Organization.id == ROOT_ORG_ID).first():
         db.add(Organization(id=ROOT_ORG_ID, slug="root", name="CMD LABS",
-                            data_scope="personal", granted_modules=[], status="active"))
+                            granted_modules=[], status="active"))
         db.flush()
     db.add(Agent(id=AGENT_ID, org_id=ROOT_ORG_ID, account_id=OWNER,
                  name="SOP Agent", config={"data": {}}))

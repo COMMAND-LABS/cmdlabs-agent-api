@@ -83,6 +83,9 @@ def _resolve_org_scope(db, account_id: int, agent) -> OrgScope:
     caller's default org is used. That path is already gated by the
     session<->contact ownership check made at session creation, and the tenancy
     predicate then fails closed: a contact outside this org simply is not found.
+
+    The membership check is the whole point and is why this reads the
+    membership table rather than just trusting the agent's org_id.
     """
     org_id = getattr(agent, "org_id", None) if agent is not None else None
     if org_id is None:
@@ -93,21 +96,20 @@ def _resolve_org_scope(db, account_id: int, agent) -> OrgScope:
             "No organization",
             "Your account is not a member of any organization.")
 
-    row = (
-        db.query(Organization.data_scope)
-        .join(OrganizationMember, OrganizationMember.org_id == Organization.id)
+    member = (
+        db.query(OrganizationMember.id)
         .filter(
-            Organization.id == org_id,
+            OrganizationMember.org_id == org_id,
             OrganizationMember.account_id == account_id,
         )
         .first()
     )
-    if row is None:
+    if member is None:
         raise AgentSetupError(
             "Agent not found",
             "The specified agent was not found or you do not have access.")
 
-    return OrgScope(account_id=account_id, org_id=org_id, data_scope=row[0])
+    return OrgScope(account_id=account_id, org_id=org_id)
 
 
 @dataclass

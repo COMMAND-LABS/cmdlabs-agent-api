@@ -111,7 +111,7 @@ def pg():
 
 def _org(session, slug, ceiling, tier_key, tier_modules, account_id,
          is_owner=False):
-    org = Organization(slug=slug, name=slug, data_scope="shared",
+    org = Organization(slug=slug, name=slug,
                        granted_modules=ceiling, status="active")
     session.add(org)
     session.flush()

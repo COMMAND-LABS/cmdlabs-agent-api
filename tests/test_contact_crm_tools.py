@@ -102,8 +102,10 @@ def pg():
 ORG_ID = 1
 
 
-def _scope(account_id: int, data_scope: str = "personal") -> OrgScope:
-    return OrgScope(account_id=account_id, org_id=ORG_ID, data_scope=data_scope)
+def _scope(account_id: int, **_ignored) -> OrgScope:
+    """Orgs no longer carry a data_scope; kwargs are tolerated so the
+    existing call sites read unchanged."""
+    return OrgScope(account_id=account_id, org_id=ORG_ID)
 
 
 def _ensure_org(session):
@@ -111,7 +113,7 @@ def _ensure_org(session):
     org = session.query(Organization).filter(Organization.id == ORG_ID).first()
     if org is None:
         org = Organization(id=ORG_ID, slug="root", name="CMD LABS",
-                           data_scope="personal", granted_modules=[], status="active")
+                           granted_modules=[], status="active")
         session.add(org)
         session.flush()
     return org
@@ -141,15 +143,27 @@ def test_get_contact_returns_only_bound_contact(pg):
 
 
 @pg_required
-def test_get_contact_account_isolation(pg):
+def test_a_colleague_in_the_same_org_can_read_the_contact(pg):
+    """Same org, different account: found. That is what a shared org means.
+
+    This asserted the opposite until org-per-signup, because the root org held
+    every unrelated signup and account_id was doing the isolating. Now two
+    accounts are only ever in one org together if they are colleagues, so
+    hiding a teammate's contact would be the bug.
+
+    Kept as a positive assertion rather than deleted: it is what fails if
+    somebody reintroduces an account_id filter alongside the tenant predicate,
+    which would look like a harmless belt-and-braces tightening and would
+    quietly break every team.
+    """
     Session, seed = pg
     c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
 
-    # Same contact id, but a different account in context -> not found.
-    tool = _run(create_contact_read_tool({}, account_id=999, org_scope=_scope(999), contact_id=c.id,
-                                         session_factory=Session))
+    tool = _run(create_contact_read_tool({}, account_id=999, org_scope=_scope(999),
+                                         contact_id=c.id, session_factory=Session))
     result = _run(tool.coroutine())
-    assert result == {"error": "Contact not found."}
+    assert result.get("id") == c.id
+    assert result.get("account_id", 1) == 1, "attribution still names the creator"
 
 
 @pg_required
@@ -176,17 +190,19 @@ def test_add_event_forces_scope_and_is_listed(pg):
 
 
 @pg_required
-def test_list_events_account_isolation(pg):
+def test_list_events_is_visible_to_a_colleague(pg):
     Session, seed = pg
     c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
     seed.add(ContactEvent(org_id=ORG_ID, contact_id=c.id, account_id=1,
                           event_type="note", title="private"))
     seed.flush()
 
-    read = _run(create_contact_events_read_tool({}, account_id=999, org_scope=_scope(999), contact_id=c.id,
-                                                session_factory=Session))
+    read = _run(create_contact_events_read_tool({}, account_id=999, org_scope=_scope(999),
+                                                contact_id=c.id, session_factory=Session))
     listed = _run(read.coroutine())
-    assert listed["events"] == []
+    assert [e["title"] for e in listed["events"]] == ["private"], (
+        "a colleague in the same org sees the org's events; the boundary is "
+        "the org, and test_list_events_does_not_cross_orgs covers that one")
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +216,7 @@ def test_list_events_account_isolation(pg):
 def _ensure_second_org(session, org_id=770, slug="tools-beta"):
     org = session.query(Organization).filter(Organization.id == org_id).first()
     if org is None:
-        org = Organization(id=org_id, slug=slug, name="Beta", data_scope="shared",
+        org = Organization(id=org_id, slug=slug, name="Beta", 
                            granted_modules=[], status="active")
         session.add(org); session.flush()
     return org
@@ -219,7 +235,7 @@ def test_get_contact_does_not_cross_orgs(pg):
 
     tool = _run(create_contact_read_tool(
         {}, account_id=1,
-        org_scope=OrgScope(account_id=1, org_id=other.id, data_scope="shared"),
+        org_scope=OrgScope(account_id=1, org_id=other.id),
         contact_id=c.id, session_factory=Session))
     assert _run(tool.coroutine()) == {"error": "Contact not found."}
 
@@ -235,7 +251,7 @@ def test_list_events_does_not_cross_orgs(pg):
 
     tool = _run(create_contact_events_read_tool(
         {}, account_id=1,
-        org_scope=OrgScope(account_id=1, org_id=other.id, data_scope="shared"),
+        org_scope=OrgScope(account_id=1, org_id=other.id),
         contact_id=c.id, session_factory=Session))
     result = _run(tool.coroutine())
     events = result.get("events", result) if isinstance(result, dict) else result
