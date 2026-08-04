@@ -9,6 +9,8 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from src.services.tool_entitlement import allowed_tool_configs, effective_modules
+
 from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -64,8 +66,32 @@ async def create_tools_from_agent_config(
 
     Misconfigured or unknown tool entries are skipped with a warning rather
     than raising, so a single bad tool never kills the whole agent.
+
+    Tools whose module the caller cannot open are dropped BEFORE building.
+    cmdlabs-api's require_module() gates the HTTP surface; without this the
+    agent runtime is the way around it — a member whose tier excludes Contacts
+    gets a 404 from /api/contacts and the contacts anyway by asking an agent.
     """
     tool_configs = _extract_tool_configs(agent_config)
+
+    # org_scope carries the org this run acts in (resolved from the AGENT, and
+    # membership-checked, in routers/agents/context.py). No scope means no
+    # entitlement can be resolved, so the gated tools are dropped rather than
+    # built unchecked.
+    org_scope = kwargs.get("org_scope")
+    if org_scope is None:
+        granted: set = set()
+        logger.warning("[TOOL FACTORY] No org scope — building ungated tools only.")
+    else:
+        granted = effective_modules(db, org_scope.account_id, org_scope.org_id)
+
+    requested = len(tool_configs)
+    tool_configs = allowed_tool_configs(tool_configs, granted)
+    if len(tool_configs) != requested:
+        logger.info(
+            "[TOOL FACTORY] %d/%d tool(s) permitted by module entitlement.",
+            len(tool_configs), requested,
+        )
 
     # Build all tools concurrently. Each builder offloads its slow, blocking
     # connect + schema-reflection work to a worker thread (asyncio.to_thread),

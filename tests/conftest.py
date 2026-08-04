@@ -12,7 +12,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Ensure env vars are set before any app module is imported
-os.environ.setdefault("POSTGRES_URL", "postgresql://test:test@localhost:5432/test")
+# FORCE-SET, exactly as cmdlabs-api/tests/conftest.py does, and for the same
+# two reasons.
+#
+# 1. Safety. The container inherits POSTGRES_URL pointing at PRODUCTION. With
+#    setdefault that value survived, and the suite's own prod-host guard then
+#    (correctly) skipped every database test. Overwriting means the tests can
+#    never reach production even by accident.
+#
+# 2. Coverage. That skip was silent: 14 tests, including every tool-level
+#    isolation check, reported green while never executing. A skipped security
+#    test looks identical to a passing one, which is the worst failure mode
+#    this particular suite could have.
+#
+# Service name, not localhost — these run inside the container, where
+# localhost is the container itself.
+os.environ["POSTGRES_URL"] = os.environ.get(
+    "POSTGRES_TEST_URL", "postgresql://test:test@cmdlabs-test-pg:5432/kalygo_test"
+)
 os.environ.setdefault("AUTH_SECRET_KEY", "test-secret-key-for-tests")
 os.environ.setdefault("AUTH_ALGORITHM", "HS256")
 os.environ.setdefault("CREDENTIALS_ENCRYPTION_KEY", "dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcyEhISE=")

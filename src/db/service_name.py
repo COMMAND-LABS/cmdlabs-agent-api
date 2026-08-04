@@ -7,10 +7,10 @@ from enum import Enum
 class ServiceName(str, Enum):
     """
     Supported API service names for storing credentials.
-
+    
     This enum explicitly defines which third-party services are supported
     by the Kalygo platform. New services can be added as needed.
-
+    
     Note: Adding a new value here requires a corresponding Alembic migration
     to add the value to the PostgreSQL enum type.
     """
@@ -18,19 +18,20 @@ class ServiceName(str, Enum):
     OPENAI_API_KEY = "OPENAI_API_KEY"
     ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
     GOOGLE_GEMINI_API_KEY = "GOOGLE_GEMINI_API_KEY"
-    GOOGLE_API_KEY = "GOOGLE_API_KEY"
-
+    
     # Vector Database
     PINECONE_API_KEY = "PINECONE_API_KEY"
-
+    
     # Voice / Audio
     ELEVENLABS_API_KEY = "ELEVENLABS_API_KEY"
-
+    
     # Database Services
     SUPABASE = "SUPABASE"
-
+    
     # Email Services
     AWS_SES = "AWS_SES"
     GOOGLE_OAUTH = "GOOGLE_OAUTH"
     GOOGLE_GMAIL_SMTP = "GOOGLE_GMAIL_SMTP"
 
+    # Object Storage
+    GOOGLE_CLOUD_STORAGE = "GOOGLE_CLOUD_STORAGE"

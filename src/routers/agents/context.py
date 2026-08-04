@@ -23,9 +23,17 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import StructuredTool
 
 from src.db.database import SessionLocal
-from src.db.models import Agent, ChatMessage, ChatSession
+from src.db.models import (
+    Account,
+    Agent,
+    ChatMessage,
+    ChatSession,
+    Organization,
+    OrganizationMember,
+)
 from src.db.retry import db_retry_once
 from src.services.agent_access import load_agent_with_access_check
+from src.services.org_scope import OrgScope
 from src.routers.agents.contact_agent_config import (
     CONTACT_AGENT_NAME,
     contact_session_required,
@@ -55,6 +63,51 @@ from src.utils.template_variables import (
     build_variable_context,
     resolve_template_variables,
 )
+
+
+
+def _resolve_org_scope(db, account_id: int, agent) -> OrgScope:
+    """The organization this run acts in.
+
+    Taken from the AGENT, not the caller: an agent belongs to one org and its
+    tools read that org's data, so a caller reaching a shared agent must be
+    acting inside the agent's tenant or not at all.
+
+    The membership check is what makes that safe — without it, a caller who
+    obtained an agent id could have its tools run against an org they do not
+    belong to. It is the same rule ai-api's get_org_context enforces per
+    request; the agent runtime needs its own because tools do not run on the
+    request session.
+
+    On the code-defined (contact-chat) path there is no agent row, so the
+    caller's default org is used. That path is already gated by the
+    session<->contact ownership check made at session creation, and the tenancy
+    predicate then fails closed: a contact outside this org simply is not found.
+    """
+    org_id = getattr(agent, "org_id", None) if agent is not None else None
+    if org_id is None:
+        org_id = db.query(Account.default_org_id).filter(
+            Account.id == account_id).scalar()
+    if org_id is None:
+        raise AgentSetupError(
+            "No organization",
+            "Your account is not a member of any organization.")
+
+    row = (
+        db.query(Organization.data_scope)
+        .join(OrganizationMember, OrganizationMember.org_id == Organization.id)
+        .filter(
+            Organization.id == org_id,
+            OrganizationMember.account_id == account_id,
+        )
+        .first()
+    )
+    if row is None:
+        raise AgentSetupError(
+            "Agent not found",
+            "The specified agent was not found or you do not have access.")
+
+    return OrgScope(account_id=account_id, org_id=org_id, data_scope=row[0])
 
 
 @dataclass
@@ -139,6 +192,8 @@ async def prepare_agent_context(
         agent_config = agent.config
         agent_name = agent.name
         agent_owner_account_id = agent.account_id
+
+    org_scope = _resolve_org_scope(db, account_id, agent)
 
     config_data = agent_config.get("data", {})
 
@@ -284,6 +339,7 @@ async def prepare_agent_context(
             agent_id=agent_id,
             chat_session_id_pk=session.id,
             agent_owner_account_id=agent_owner_account_id,
+            org_scope=org_scope,
             contact_id=contact_id,
         )
     except CredentialError as exc:

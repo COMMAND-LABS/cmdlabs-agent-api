@@ -15,7 +15,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.db.models import Account, Contact, ContactEvent
+from src.db.models import Account, Contact, ContactEvent, Organization
+from src.services.org_scope import OrgScope
 from src.tools.contact_crm import (
     create_contact_event_write_tool,
     create_contact_events_read_tool,
@@ -38,22 +39,22 @@ def test_no_tool_exposes_contact_or_account_id():
         create_contact_event_write_tool,
     ]
     for builder in builders:
-        tool = _run(builder({}, account_id=1, contact_id=42))
+        tool = _run(builder({}, account_id=1, org_scope=_scope(1), contact_id=42))
         fields = set(tool.args_schema.model_fields)
         assert "contact_id" not in fields, f"{tool.name} leaks contact_id"
         assert "account_id" not in fields, f"{tool.name} leaks account_id"
 
 
 def test_tool_names_are_stable():
-    assert _run(create_contact_read_tool({}, 1, contact_id=1)).name == "get_contact"
-    assert _run(create_contact_events_read_tool({}, 1, contact_id=1)).name == "list_contact_events"
-    assert _run(create_contact_event_write_tool({}, 1, contact_id=1)).name == "add_contact_event"
+    assert _run(create_contact_read_tool({}, 1, org_scope=_scope(1), contact_id=1)).name == "get_contact"
+    assert _run(create_contact_events_read_tool({}, 1, org_scope=_scope(1), contact_id=1)).name == "list_contact_events"
+    assert _run(create_contact_event_write_tool({}, 1, org_scope=_scope(1), contact_id=1)).name == "add_contact_event"
 
 
 def test_tools_fail_safe_when_no_contact_bound():
     # Defensive: prepare_agent_context fails closed before this, but the tool
     # must never run unscoped if contact_id is somehow None.
-    tool = _run(create_contact_read_tool({}, account_id=1, contact_id=None))
+    tool = _run(create_contact_read_tool({}, account_id=1, org_scope=_scope(1), contact_id=None))
     result = _run(tool.coroutine())
     assert "error" in result
 
@@ -63,7 +64,7 @@ def test_tools_fail_safe_when_no_contact_bound():
 # --------------------------------------------------------------------------
 
 _PG_URL = os.environ.get(
-    "POSTGRES_TEST_URL", "postgresql://test:test@localhost:5432/kalygo_test"
+    "POSTGRES_TEST_URL", "postgresql://test:test@cmdlabs-test-pg:5432/kalygo_test"
 )
 
 try:
@@ -94,11 +95,34 @@ def pg():
         connection.close()
 
 
+
+# Tools are built with an explicit tenant scope because they run on their own
+# session, after the request session has closed. ORG=1 is the root org the
+# seed data below lives in.
+ORG_ID = 1
+
+
+def _scope(account_id: int, data_scope: str = "personal") -> OrgScope:
+    return OrgScope(account_id=account_id, org_id=ORG_ID, data_scope=data_scope)
+
+
+def _ensure_org(session):
+    """org_id is NOT NULL on contacts, so the tenant has to exist first."""
+    org = session.query(Organization).filter(Organization.id == ORG_ID).first()
+    if org is None:
+        org = Organization(id=ORG_ID, slug="root", name="CMD LABS",
+                           data_scope="personal", granted_modules=[], status="active")
+        session.add(org)
+        session.flush()
+    return org
+
+
 def _seed_contact(session, account_id, email):
+    _ensure_org(session)
     if not session.query(Account).filter(Account.id == account_id).first():
         session.add(Account(id=account_id, email=f"acct{account_id}-{email}"))
         session.flush()
-    c = Contact(account_id=account_id, first_name="Rodolfo", last_name="C", email=email)
+    c = Contact(org_id=ORG_ID, account_id=account_id, first_name="Rodolfo", last_name="C", email=email)
     session.add(c)
     session.flush()
     return c
@@ -109,7 +133,7 @@ def test_get_contact_returns_only_bound_contact(pg):
     Session, seed = pg
     c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
 
-    tool = _run(create_contact_read_tool({}, account_id=1, contact_id=c.id,
+    tool = _run(create_contact_read_tool({}, account_id=1, org_scope=_scope(1), contact_id=c.id,
                                          session_factory=Session))
     result = _run(tool.coroutine())
     assert result["id"] == c.id
@@ -122,7 +146,7 @@ def test_get_contact_account_isolation(pg):
     c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
 
     # Same contact id, but a different account in context -> not found.
-    tool = _run(create_contact_read_tool({}, account_id=999, contact_id=c.id,
+    tool = _run(create_contact_read_tool({}, account_id=999, org_scope=_scope(999), contact_id=c.id,
                                          session_factory=Session))
     result = _run(tool.coroutine())
     assert result == {"error": "Contact not found."}
@@ -133,7 +157,7 @@ def test_add_event_forces_scope_and_is_listed(pg):
     Session, seed = pg
     c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
 
-    write = _run(create_contact_event_write_tool({}, account_id=1, contact_id=c.id,
+    write = _run(create_contact_event_write_tool({}, account_id=1, org_scope=_scope(1), contact_id=c.id,
                                                  session_factory=Session))
     out = _run(write.coroutine(event_type="call", title="Intro call",
                                description="Discussed pricing"))
@@ -145,7 +169,7 @@ def test_add_event_forces_scope_and_is_listed(pg):
     assert row.contact_id == c.id
     assert row.account_id == 1
 
-    read = _run(create_contact_events_read_tool({}, account_id=1, contact_id=c.id,
+    read = _run(create_contact_events_read_tool({}, account_id=1, org_scope=_scope(1), contact_id=c.id,
                                                 session_factory=Session))
     listed = _run(read.coroutine())
     assert any(e["title"] == "Intro call" for e in listed["events"])
@@ -155,11 +179,83 @@ def test_add_event_forces_scope_and_is_listed(pg):
 def test_list_events_account_isolation(pg):
     Session, seed = pg
     c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
-    seed.add(ContactEvent(contact_id=c.id, account_id=1,
+    seed.add(ContactEvent(org_id=ORG_ID, contact_id=c.id, account_id=1,
                           event_type="note", title="private"))
     seed.flush()
 
-    read = _run(create_contact_events_read_tool({}, account_id=999, contact_id=c.id,
+    read = _run(create_contact_events_read_tool({}, account_id=999, org_scope=_scope(999), contact_id=c.id,
                                                 session_factory=Session))
     listed = _run(read.coroutine())
     assert listed["events"] == []
+
+
+# ---------------------------------------------------------------------------
+# cross-ORG isolation
+# ---------------------------------------------------------------------------
+# The cases above vary account_id within one org. These vary the ORG, which is
+# the boundary that actually matters — and which the agent runtime had no way
+# to enforce until the tool scope was threaded through, because tools run on
+# their own session with no ambient request context.
+
+def _ensure_second_org(session, org_id=770, slug="tools-beta"):
+    org = session.query(Organization).filter(Organization.id == org_id).first()
+    if org is None:
+        org = Organization(id=org_id, slug=slug, name="Beta", data_scope="shared",
+                           granted_modules=[], status="active")
+        session.add(org); session.flush()
+    return org
+
+
+@pg_required
+def test_get_contact_does_not_cross_orgs(pg):
+    """Same account id, different org: the contact must not be found.
+
+    Without the scope the tool filtered on account_id alone, so an agent run
+    in one tenant could read a contact in another as long as the ids lined up.
+    """
+    Session, seed = pg
+    c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")   # lives in ORG_ID
+    other = _ensure_second_org(seed)
+
+    tool = _run(create_contact_read_tool(
+        {}, account_id=1,
+        org_scope=OrgScope(account_id=1, org_id=other.id, data_scope="shared"),
+        contact_id=c.id, session_factory=Session))
+    assert _run(tool.coroutine()) == {"error": "Contact not found."}
+
+
+@pg_required
+def test_list_events_does_not_cross_orgs(pg):
+    Session, seed = pg
+    c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
+    seed.add(ContactEvent(org_id=ORG_ID, contact_id=c.id, account_id=1,
+                          event_type="note", title="private"))
+    seed.flush()
+    other = _ensure_second_org(seed)
+
+    tool = _run(create_contact_events_read_tool(
+        {}, account_id=1,
+        org_scope=OrgScope(account_id=1, org_id=other.id, data_scope="shared"),
+        contact_id=c.id, session_factory=Session))
+    result = _run(tool.coroutine())
+    events = result.get("events", result) if isinstance(result, dict) else result
+    assert not events, f"cross-org event leak: {events}"
+
+
+@pg_required
+def test_written_event_is_stamped_with_the_running_org(pg):
+    """The write path must record the tenant, not only the author — otherwise
+    the row is unreachable by the org scoping that will read it back."""
+    Session, seed = pg
+    c = _seed_contact(seed, 1, f"{uuid.uuid4()}@x.com")
+
+    write = _run(create_contact_event_write_tool(
+        {}, account_id=1, org_scope=_scope(1), contact_id=c.id,
+        session_factory=Session))
+    _run(write.coroutine(event_type="note", title="stamped"))
+
+    ev = (seed.query(ContactEvent)
+          .filter(ContactEvent.contact_id == c.id,
+                  ContactEvent.title == "stamped")
+          .one())
+    assert ev.org_id == ORG_ID

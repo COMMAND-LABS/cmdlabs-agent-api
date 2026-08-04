@@ -24,6 +24,7 @@ from src.db.models import (
     Agent,
     AccessGroup,
     AccessGroupMember,
+    Organization,
     AccessGrant,
 )
 from src.services.agent_access import (
@@ -31,6 +32,8 @@ from src.services.agent_access import (
     get_accessible_agent_ids,
     load_agent_with_access_check,
 )
+
+ROOT_ORG_ID = 1
 
 OWNER, MEMBER, OUTSIDER, MEMBER_NOGRANT = 1001, 1002, 1003, 1004
 AGENT_ID = 2001
@@ -82,7 +85,14 @@ def seed(db):
         (MEMBER_NOGRANT, "member-nogrant@example.com"),
     ]:
         db.add(Account(id=acc_id, email=email))
-    db.add(Agent(id=AGENT_ID, account_id=OWNER, name="SOP Agent", config={"data": {}}))
+    # Every agent needs a tenant. This suite is single-org, so everything
+    # sits in the root org.
+    if not db.query(Organization).filter(Organization.id == ROOT_ORG_ID).first():
+        db.add(Organization(id=ROOT_ORG_ID, slug="root", name="CMD LABS",
+                            data_scope="personal", granted_modules=[], status="active"))
+        db.flush()
+    db.add(Agent(id=AGENT_ID, org_id=ROOT_ORG_ID, account_id=OWNER,
+                 name="SOP Agent", config={"data": {}}))
     db.add(AccessGroup(id=GROUP_GRANTED, name="Granted", owner_account_id=OWNER))
     db.add(AccessGroup(id=GROUP_UNGRANTED, name="Ungranted", owner_account_id=OWNER))
     db.add(AccessGroupMember(access_group_id=GROUP_GRANTED, account_id=MEMBER))

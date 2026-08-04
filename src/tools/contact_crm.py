@@ -29,6 +29,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from src.db.models import Contact, ContactEvent
+from src.services.org_scope import tenant_predicate
 
 from .db_read import serialize_value
 
@@ -112,6 +113,18 @@ async def create_contact_read_tool(
     **kwargs,
 ) -> StructuredTool:
     contact_id = kwargs.get("contact_id")
+    # Closed over like contact_id: tools run AFTER the request session is
+    # closed, on their own session, so there is no ambient context to read.
+    #
+    # Required, not optional. A tool built without a scope would query the
+    # app database with no tenant filter at all, so failing to construct is
+    # far better than running.
+    org_scope = kwargs.get("org_scope")
+    if org_scope is None:
+        raise ValueError(
+            "org_scope is required to build CRM tools — without it the tool "
+            "would read across tenants."
+        )
     session_factory = _resolve_session_factory(kwargs)
 
     async def get_contact() -> dict[str, Any]:
@@ -121,7 +134,7 @@ async def create_contact_read_tool(
         try:
             c = (
                 s.query(Contact)
-                .filter(Contact.id == contact_id, Contact.account_id == account_id)
+                .filter(Contact.id == contact_id, tenant_predicate(Contact, org_scope))
                 .first()
             )
             return _serialize_contact(c) if c else {"error": "Contact not found."}
@@ -145,6 +158,18 @@ async def create_contact_events_read_tool(
     **kwargs,
 ) -> StructuredTool:
     contact_id = kwargs.get("contact_id")
+    # Closed over like contact_id: tools run AFTER the request session is
+    # closed, on their own session, so there is no ambient context to read.
+    #
+    # Required, not optional. A tool built without a scope would query the
+    # app database with no tenant filter at all, so failing to construct is
+    # far better than running.
+    org_scope = kwargs.get("org_scope")
+    if org_scope is None:
+        raise ValueError(
+            "org_scope is required to build CRM tools — without it the tool "
+            "would read across tenants."
+        )
     session_factory = _resolve_session_factory(kwargs)
 
     async def list_contact_events(
@@ -157,7 +182,7 @@ async def create_contact_events_read_tool(
         try:
             q = s.query(ContactEvent).filter(
                 ContactEvent.contact_id == contact_id,
-                ContactEvent.account_id == account_id,
+                tenant_predicate(ContactEvent, org_scope),
             )
             if event_type:
                 q = q.filter(ContactEvent.event_type == event_type)
@@ -185,6 +210,18 @@ async def create_contact_event_write_tool(
     **kwargs,
 ) -> StructuredTool:
     contact_id = kwargs.get("contact_id")
+    # Closed over like contact_id: tools run AFTER the request session is
+    # closed, on their own session, so there is no ambient context to read.
+    #
+    # Required, not optional. A tool built without a scope would query the
+    # app database with no tenant filter at all, so failing to construct is
+    # far better than running.
+    org_scope = kwargs.get("org_scope")
+    if org_scope is None:
+        raise ValueError(
+            "org_scope is required to build CRM tools — without it the tool "
+            "would read across tenants."
+        )
     session_factory = _resolve_session_factory(kwargs)
 
     async def add_contact_event(
@@ -196,7 +233,8 @@ async def create_contact_event_write_tool(
         try:
             event = ContactEvent(
                 contact_id=contact_id,      # forced — not a model argument
-                account_id=account_id,      # forced — not a model argument
+                org_id=org_scope.org_id,    # forced — the tenant
+                account_id=account_id,      # forced — attribution
                 event_type=event_type,
                 title=title,
                 description=description,
