@@ -7,6 +7,11 @@ Allows agents to query structured data from user-configured databases.
 """
 import asyncio
 import logging
+import math
+import uuid
+from datetime import timedelta
+from decimal import Decimal
+from enum import Enum
 from typing import Any, TypedDict
 
 from langchain_core.tools import StructuredTool
@@ -41,16 +46,49 @@ class DbReadError(TypedDict):
 
 
 def serialize_value(value: Any) -> Any:
-    """Serialize a database value to JSON-compatible format."""
-    if value is None:
-        return None
-    if hasattr(value, 'isoformat'):  # datetime objects
-        return value.isoformat()
-    if isinstance(value, bytes):
-        return value.decode('utf-8', errors='replace')
-    if hasattr(value, '__dict__'):  # Complex objects
+    """Serialize a database value to JSON-compatible format.
+
+    Tool results are json.dumps'd on the way to the LLM and into the SSE
+    stream, so anything that survives this function must be a JSON primitive
+    or a container of them. Driver types with no JSON equivalent — Decimal
+    (NUMERIC), UUID, Interval, bytes, Enum — are converted here; the previous
+    ``hasattr(value, '__dict__')`` catch-all missed all of them, because none
+    of those types carry a ``__dict__``, and they were returned raw only to
+    blow up later as "Object of type X is not JSON serializable".
+    """
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        # NaN/Infinity are not valid JSON — json.dumps emits them anyway and
+        # the browser's JSON.parse then rejects the whole SSE frame.
+        return value if math.isfinite(value) else str(value)
+    if isinstance(value, Decimal):
+        # NUMERIC columns (e.g. deals.amount). Emitted as a JSON number to
+        # match how the REST API models the same columns (deals: float), so
+        # the agent and the dashboard see one shape. Beyond ~15 significant
+        # digits float64 cannot hold the value; those fall back to a string
+        # rather than silently rounding.
+        if not value.is_finite():
+            return str(value)
+        as_float = float(value)
+        return as_float if Decimal(repr(as_float)) == value else str(value)
+    if isinstance(value, uuid.UUID):
         return str(value)
-    return value
+    if hasattr(value, 'isoformat'):  # date / time / datetime
+        return value.isoformat()
+    if isinstance(value, timedelta):  # INTERVAL
+        return str(value)
+    if isinstance(value, Enum):
+        return serialize_value(value.value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).decode('utf-8', errors='replace')
+    if isinstance(value, dict):  # JSON/JSONB, or ARRAY elements
+        return {str(k): serialize_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [serialize_value(v) for v in value]
+    # Anything left (custom driver objects, ranges, network types) is rendered
+    # as text — lossy, but always serializable.
+    return str(value)
 
 
 def get_connection_string(credential_id: int, account_id: int, db: Session) -> str:
