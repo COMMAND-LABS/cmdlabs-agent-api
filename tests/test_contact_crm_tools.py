@@ -112,8 +112,8 @@ def _ensure_org(session):
     """org_id is NOT NULL on contacts, so the tenant has to exist first."""
     org = session.query(Organization).filter(Organization.id == ORG_ID).first()
     if org is None:
-        org = Organization(id=ORG_ID, slug="root", name="CMD LABS",
-                           granted_modules=[], status="active")
+        org = Organization(id=ORG_ID, name="CMD LABS",
+                           granted_modules=[])
         session.add(org)
         session.flush()
     return org
@@ -213,11 +213,11 @@ def test_list_events_is_visible_to_a_colleague(pg):
 # to enforce until the tool scope was threaded through, because tools run on
 # their own session with no ambient request context.
 
-def _ensure_second_org(session, org_id=770, slug="tools-beta"):
+def _ensure_second_org(session, org_id=770, name="Beta"):
     org = session.query(Organization).filter(Organization.id == org_id).first()
     if org is None:
-        org = Organization(id=org_id, slug=slug, name="Beta", 
-                           granted_modules=[], status="active")
+        org = Organization(id=org_id, name=name, 
+                           granted_modules=[])
         session.add(org); session.flush()
     return org
 

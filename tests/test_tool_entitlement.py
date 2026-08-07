@@ -111,8 +111,11 @@ def pg():
 
 def _org(session, slug, ceiling, tier_key, tier_modules, account_id,
          is_owner=False):
-    org = Organization(slug=slug, name=slug,
-                       granted_modules=ceiling, status="active")
+    # `slug` is the caller's label for the org in this test, not a column:
+    # organizations dropped their slug in f4a5b6c7d8f0. Kept as the parameter
+    # name because it is what every call site reads as "which org is this".
+    org = Organization(name=slug,
+                       granted_modules=ceiling)
     session.add(org)
     session.flush()
     session.add(OrganizationTier(org_id=org.id, tier_key=tier_key,
