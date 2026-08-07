@@ -95,8 +95,7 @@ def seed(db):
         db.add(Account(id=acc_id, email=email))
     # Every agent needs a tenant. This suite is single-org.
     if not db.query(Organization).filter(Organization.id == ROOT_ORG_ID).first():
-        db.add(Organization(id=ROOT_ORG_ID, name="CMD LABS",
-                            granted_modules=[]))
+        db.add(Organization(id=ROOT_ORG_ID, name="CMD LABS"))
         db.flush()
     db.add(Agent(id=AGENT_ID, org_id=ROOT_ORG_ID, account_id=OWNER,
                  name="SOP Agent", config={"data": {}}))

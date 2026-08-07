@@ -24,6 +24,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.config import plans_registry as plans
 from src.db.models import (
     Account,
     Organization,
@@ -109,13 +110,15 @@ def pg():
         connection.close()
 
 
-def _org(session, slug, ceiling, tier_key, tier_modules, account_id,
+def _org(session, slug, plan, tier_key, tier_modules, account_id,
          is_owner=False):
     # `slug` is the caller's label for the org in this test, not a column:
     # organizations dropped their slug in f4a5b6c7d8f0. Kept as the parameter
     # name because it is what every call site reads as "which org is this".
-    org = Organization(name=slug,
-                       granted_modules=ceiling)
+    #
+    # `plan` is PINNED, so the ceiling does not depend on an owner account with
+    # a subscription these tests do not care about.
+    org = Organization(name=slug, pinned_plan=plan)
     session.add(org)
     session.flush()
     session.add(OrganizationTier(org_id=org.id, tier_key=tier_key,
@@ -132,24 +135,28 @@ def _org(session, slug, ceiling, tier_key, tier_modules, account_id,
 
 @pg_required
 def test_effective_modules_is_ceiling_intersect_tier(pg):
-    org = _org(pg, "ent-a", ceiling=["contacts", "agents"], tier_key="member",
-               tier_modules=["contacts", "deals"], account_id=77001)
-    # deals is in the tier but outside the ceiling; agents is the reverse.
+    # `organization` is a real registry key that NO plan sells, so it is
+    # outside every possible ceiling — the case this test exists for.
+    org = _org(pg, "ent-a", plan="premium", tier_key="member",
+               tier_modules=["contacts", "organization"], account_id=77001)
+    # organization is in the tier but outside the ceiling; agents is the
+    # reverse — in the ceiling but not in this tier.
     assert effective_modules(pg, 77001, org.id) == {"contacts"}
 
 
 @pg_required
 def test_an_owner_gets_the_whole_ceiling(pg):
-    org = _org(pg, "ent-b", ceiling=["contacts", "agents"], tier_key="member",
+    org = _org(pg, "ent-b", plan="free", tier_key="member",
                tier_modules=[], account_id=77002, is_owner=True)
-    assert effective_modules(pg, 77002, org.id) == {"contacts", "agents"}
+    assert effective_modules(pg, 77002, org.id) == set(
+        plans.modules_for_plan(plans.PLAN_FREE))
 
 
 @pg_required
 def test_a_non_member_gets_nothing(pg):
     """Fails closed. This check runs outside the request context, so it cannot
     lean on get_org_context having already refused."""
-    org = _org(pg, "ent-c", ceiling=["contacts"], tier_key="member",
+    org = _org(pg, "ent-c", plan="premium", tier_key="member",
                tier_modules=["contacts"], account_id=77003)
     pg.add(Account(id=77004, email="stranger@t.test"))
     pg.flush()
@@ -160,7 +167,7 @@ def test_a_non_member_gets_nothing(pg):
 def test_a_tier_without_contacts_gets_no_crm_tools(pg):
     """The end-to-end shape: entitlement resolved from the database, then
     applied to a real agent's tool list."""
-    org = _org(pg, "ent-d", ceiling=["agents", "knowledge_bases"],
+    org = _org(pg, "ent-d", plan="premium",
                tier_key="member", tier_modules=["agents", "knowledge_bases"],
                account_id=77005)
     granted = effective_modules(pg, 77005, org.id)

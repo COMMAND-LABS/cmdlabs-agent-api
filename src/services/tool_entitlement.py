@@ -12,12 +12,18 @@ it is not in the model's tool list at all. Absent rather than refusing, which
 is both cheaper and quieter — the model does not narrate a capability the
 caller was not sold.
 
-    effective = organizations.granted_modules  ∩  organization_tiers.modules
+    effective = the org's PLAN  ∩  organization_tiers.modules
 
 kept deliberately identical to cmdlabs-api/src/services/modules.py, including
-the owner and platform-staff bypasses. Two services enforcing entitlement
-differently is worse than one enforcing it and one not: the gap is harder to
-see.
+the owner bypass. Two services enforcing entitlement differently is worse than
+one enforcing it and one not: the gap is harder to see.
+
+The ceiling is DERIVED, never read from a column. It used to read
+organizations.granted_modules directly, and when that column became a pinned
+PLAN this file would have resolved every org to an empty set — every gated tool
+silently absent from every agent. It reads config/plans_registry, which is
+byte-synced from cmdlabs-api (check-schemas.sh) precisely so "what does premium
+include" cannot be answered twice.
 
 This is the MODULE axis only. It decides which tools exist; org_scope's
 tenant_predicate still decides which rows those tools see. Neither substitutes
@@ -27,7 +33,13 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from src.db.models import Organization, OrganizationMember, OrganizationTier
+from src.config import plans_registry as plans
+from src.db.models import (
+    Account,
+    Organization,
+    OrganizationMember,
+    OrganizationTier,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +64,27 @@ TOOL_MODULES = {
 }
 
 
+def _ceiling(db: Session, pinned_plan, owner_account_id) -> list[str]:
+    """The modules this org's PLAN opens. Mirrors modules.org_entitlement.
+
+    A pinned plan wins outright — that is the comp, and billing may never undo
+    it. Otherwise the plan is read from the owner's subscription, including the
+    grace window after a lapse (which keeps the paid modules and refuses writes
+    on the HTTP side; an agent tool is a read, so nothing here changes).
+    """
+    if pinned_plan is not None:
+        return plans.modules_for_plan(pinned_plan)
+    if owner_account_id is None:
+        return plans.modules_for_plan(plans.PLAN_FREE)
+
+    owner = (db.query(Account.subscription_status,
+                      Account.subscription_lapsed_at)
+               .filter(Account.id == owner_account_id).first())
+    if owner is None:
+        return plans.modules_for_plan(plans.PLAN_FREE)
+    return plans.modules_for_plan(plans.plan_for(owner[0], owner[1]))
+
+
 def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
     """Module keys `account_id` may open in `org_id`.
 
@@ -60,8 +93,8 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
     direction for a check that runs outside the request context.
     """
     row = (
-        db.query(Organization.granted_modules, OrganizationMember.tier_key,
-                 OrganizationMember.is_owner)
+        db.query(Organization.pinned_plan, Organization.owner_account_id,
+                 OrganizationMember.tier_key, OrganizationMember.is_owner)
         .join(OrganizationMember, OrganizationMember.org_id == Organization.id)
         .filter(Organization.id == org_id,
                 OrganizationMember.account_id == account_id)
@@ -74,8 +107,8 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
         )
         return set()
 
-    ceiling, tier_key, is_owner = row
-    ceiling = set(ceiling or ())
+    pinned_plan, owner_account_id, tier_key, is_owner = row
+    ceiling = set(_ceiling(db, pinned_plan, owner_account_id))
 
     # An owner reaches their org's whole ceiling regardless of their own tier,
     # matching cmdlabs-api. Platform staff likewise bypass the tier but not the

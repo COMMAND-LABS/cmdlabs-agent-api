@@ -112,8 +112,7 @@ def _ensure_org(session):
     """org_id is NOT NULL on contacts, so the tenant has to exist first."""
     org = session.query(Organization).filter(Organization.id == ORG_ID).first()
     if org is None:
-        org = Organization(id=ORG_ID, name="CMD LABS",
-                           granted_modules=[])
+        org = Organization(id=ORG_ID, name="CMD LABS")
         session.add(org)
         session.flush()
     return org
@@ -216,8 +215,7 @@ def test_list_events_is_visible_to_a_colleague(pg):
 def _ensure_second_org(session, org_id=770, name="Beta"):
     org = session.query(Organization).filter(Organization.id == org_id).first()
     if org is None:
-        org = Organization(id=org_id, name=name, 
-                           granted_modules=[])
+        org = Organization(id=org_id, name=name)
         session.add(org); session.flush()
     return org
 
