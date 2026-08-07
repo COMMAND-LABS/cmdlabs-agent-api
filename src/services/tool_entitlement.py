@@ -111,8 +111,8 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
     ceiling = set(_ceiling(db, pinned_plan, owner_account_id))
 
     # An owner reaches their org's whole ceiling regardless of their own tier,
-    # matching cmdlabs-api. Platform staff likewise bypass the tier but not the
-    # ceiling of the org they are acting in.
+    # matching cmdlabs-api. Platform super admins likewise bypass the tier but
+    # not the ceiling of the org they are acting in.
     if is_owner:
         return ceiling
 
