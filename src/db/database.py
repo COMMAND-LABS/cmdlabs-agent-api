@@ -28,7 +28,13 @@ DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "120"))
 engine_kwargs = {
     "use_native_hstore": False,
     "connect_args": {
-        "sslmode": "require",
+        # Required by default, so forgetting to set this can only ever make a
+        # connection MORE encrypted, never less. A local Postgres container
+        # speaks no SSL at all, so dev sets DB_SSLMODE=disable. Kept in step
+        # with cmdlabs-api by hand: database.py is deliberately NOT in the
+        # check-schemas.sh mirror list, because the pool tuning either side of
+        # this line is genuinely per-service.
+        "sslmode": os.getenv("DB_SSLMODE", "require"),
         "connect_timeout": 10,
         "keepalives": 1,
         "keepalives_idle": 20,
