@@ -9,16 +9,18 @@ agent-api's own ORM models, so a model referencing a column the real schema no
 longer has fails here. Run against a DB the ai-api has migrated (the superrepo
 verification flow) to turn it into a real cross-service drift check.
 
-THREE ARMS, AND THE THIRD IS THE ONE THAT CROSSES AN ORG
+TWO ARMS, NEITHER OF WHICH CROSSES AN ORG
 
     own it                                    -> yes
     a grant naming you, in this org           -> yes
-    a space you are in, that it was put into  -> yes
 
-The third arm replaced access groups. A group was a set of accounts inside one
-org that a grant could name; a space is a set of accounts that may come from
-several. What matters here is what did NOT change: being in a space with
-somebody still reaches nothing except what was deliberately put in the space.
+There was a third — "a space you are in, that it was put into" — and it was the
+only one that left the tenant. It replaced access groups: a group was a set of
+accounts inside one org that a grant could name; a space was a set of accounts
+that could come from several. Spaces were removed to simplify the platform.
+
+Keep this file in step with the ai-api copy, which records what those tests
+pinned down for whoever restores the arm.
 
 Needs a disposable Postgres (POSTGRES_TEST_URL or POSTGRES_URL). Skipped if none
 is reachable. NEVER point this at production.
@@ -31,7 +33,6 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.database import Base
 from src.db.models import Account, Agent, Organization, AccessGrant
-from src.db.space_models import Space, SpaceMember, SpaceResource
 from src.services.agent_access import (
     can_access_agent,
     get_accessible_agent_ids,
@@ -41,17 +42,14 @@ from src.services.agent_access import (
 ROOT_ORG_ID = 1
 
 OWNER, GRANTEE, OUTSIDER = 1001, 1002, 1003
-SPACE_MEMBER, OTHER_SPACE_MEMBER = 1004, 1005
 AGENT_ID, UNSHARED_AGENT_ID = 2001, 2002
-SHARED_SPACE, OTHER_SPACE = 3001, 3002
 MISSING_AGENT_ID = 999999
 
 _DB_URL = os.environ.get("POSTGRES_TEST_URL") or os.environ.get("POSTGRES_URL", "")
 _PROD_HOSTS = ("supabase.co", "neon.tech", "rds.amazonaws.com")
 _TABLES = [
     t.__table__
-    for t in (Account, Organization, Agent, AccessGrant,
-              Space, SpaceMember, SpaceResource)
+    for t in (Account, Organization, Agent, AccessGrant)
 ]
 
 
@@ -84,13 +82,11 @@ def db(engine):
 
 @pytest.fixture()
 def seed(db):
-    """One agent reachable three ways, and one reachable only by its owner."""
+    """One agent reachable two ways, and one reachable only by its owner."""
     for acc_id, email in [
         (OWNER, "owner@example.com"),
         (GRANTEE, "grantee@example.com"),
         (OUTSIDER, "outsider@example.com"),
-        (SPACE_MEMBER, "in-the-space@example.com"),
-        (OTHER_SPACE_MEMBER, "in-another-space@example.com"),
     ]:
         db.add(Account(id=acc_id, email=email))
     # Every agent needs a tenant. This suite is single-org.
@@ -112,17 +108,6 @@ def seed(db):
         role="use",
     ))
 
-    # Arm 3: the agent put into a space, whose members reach it.
-    db.add(Space(id=SHARED_SPACE, name="Shared", owner_account_id=OWNER,
-                 owner_org_id=ROOT_ORG_ID))
-    db.add(Space(id=OTHER_SPACE, name="Unrelated", owner_account_id=OWNER,
-                 owner_org_id=ROOT_ORG_ID))
-    db.add(SpaceMember(space_id=SHARED_SPACE, account_id=SPACE_MEMBER,
-                       tier_key="member"))
-    db.add(SpaceMember(space_id=OTHER_SPACE, account_id=OTHER_SPACE_MEMBER,
-                       tier_key="member"))
-    db.add(SpaceResource(space_id=SHARED_SPACE, resource_type="agent",
-                         resource_id=AGENT_ID, added_by_account_id=OWNER))
     db.flush()
     return db
 
@@ -135,23 +120,14 @@ def test_a_named_grantee_can_access(seed):
     assert can_access_agent(seed, GRANTEE, AGENT_ID)
 
 
-def test_a_member_of_the_space_it_was_shared_into_can_access(seed):
-    assert can_access_agent(seed, SPACE_MEMBER, AGENT_ID)
+def test_a_grant_reaches_only_the_agent_it_names(seed):
+    """A grant on AGENT_ID says nothing about the owner's other agents.
 
-
-def test_a_member_of_a_different_space_cannot(seed):
-    """Being in SOME space reaches nothing. The share names one space."""
-    assert not can_access_agent(seed, OTHER_SPACE_MEMBER, AGENT_ID)
-
-
-def test_the_space_reaches_only_what_was_put_in_it(seed):
-    """The sharpest edge in the whole design.
-
-    SPACE_MEMBER reaches AGENT_ID. Its owner also owns UNSHARED_AGENT_ID, in
-    the same org, created by the same account. If space membership ever leaked
-    into "you may see this person's agents", this is the assertion that fails.
+    Same org, same creator, no grant. This is the surviving half of the
+    assertion the space tests made: reaching one of somebody's agents never
+    means reaching the rest of them.
     """
-    assert not can_access_agent(seed, SPACE_MEMBER, UNSHARED_AGENT_ID)
+    assert not can_access_agent(seed, GRANTEE, UNSHARED_AGENT_ID)
 
 
 def test_outsider_cannot_access(seed):
@@ -165,13 +141,13 @@ def test_missing_agent_is_denied(seed):
 def test_get_accessible_agent_ids_is_grants_only(seed):
     """Deliberately narrower than can_access_agent, and it must stay that way.
 
-    This function feeds the LIST queries, which add the space arm themselves
-    through org_scope.scoped_resources — beside the org predicate the arm has
-    to sit next to. Returning space ids here as well would apply that arm twice
-    at two different widths.
+    It EXCLUDES owned agents — callers union those separately. It also excluded
+    the space arm, because the LIST queries add that themselves through
+    org_scope.scoped_resources, beside the org predicate it has to sit next to.
+    Returning shared ids here as well would apply that arm twice at two
+    different widths; the same reasoning applies to whatever replaces spaces.
     """
     assert get_accessible_agent_ids(seed, GRANTEE) == {AGENT_ID}
-    assert get_accessible_agent_ids(seed, SPACE_MEMBER) == set()
     assert get_accessible_agent_ids(seed, OWNER) == set()
     assert get_accessible_agent_ids(seed, OUTSIDER) == set()
 
@@ -179,6 +155,5 @@ def test_get_accessible_agent_ids_is_grants_only(seed):
 def test_load_agent_with_access_check(seed):
     assert load_agent_with_access_check(seed, OWNER, AGENT_ID).id == AGENT_ID
     assert load_agent_with_access_check(seed, GRANTEE, AGENT_ID).id == AGENT_ID
-    assert load_agent_with_access_check(seed, SPACE_MEMBER, AGENT_ID).id == AGENT_ID
     assert load_agent_with_access_check(seed, OUTSIDER, AGENT_ID) is None
     assert load_agent_with_access_check(seed, OWNER, MISSING_AGENT_ID) is None
