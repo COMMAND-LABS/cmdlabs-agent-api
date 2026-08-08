@@ -94,7 +94,7 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
     """
     row = (
         db.query(Organization.pinned_plan, Organization.owner_account_id,
-                 OrganizationMember.tier_key, OrganizationMember.is_owner)
+                 OrganizationMember.tier_key)
         .join(OrganizationMember, OrganizationMember.org_id == Organization.id)
         .filter(Organization.id == org_id,
                 OrganizationMember.account_id == account_id)
@@ -107,13 +107,18 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
         )
         return set()
 
-    pinned_plan, owner_account_id, tier_key, is_owner = row
+    pinned_plan, owner_account_id, tier_key = row
     ceiling = set(_ceiling(db, pinned_plan, owner_account_id))
 
     # An owner reaches their org's whole ceiling regardless of their own tier,
     # matching cmdlabs-api. Platform super admins likewise bypass the tier but
     # not the ceiling of the org they are acting in.
-    if is_owner:
+    #
+    # DERIVED from the org's owner column, matching cmdlabs-api deps.py. This
+    # used to read a per-membership is_owner flag, which was a second copy of
+    # the same fact; owner_account_id is already selected above for the
+    # ceiling, so asking it costs nothing and cannot disagree.
+    if owner_account_id is not None and owner_account_id == account_id:
         return ceiling
 
     tier = (

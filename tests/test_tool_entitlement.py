@@ -118,6 +118,9 @@ def _org(session, slug, plan, tier_key, tier_modules, account_id,
     #
     # `plan` is PINNED, so the ceiling does not depend on an owner account with
     # a subscription these tests do not care about.
+    # `is_owner` is now the ORG's owner_account_id rather than a flag on the
+    # membership row — one fact, one home, matching cmdlabs-api. The parameter
+    # and every call site are unchanged; only where it gets written moved.
     org = Organization(name=slug, pinned_plan=plan)
     session.add(org)
     session.flush()
@@ -126,9 +129,14 @@ def _org(session, slug, plan, tier_key, tier_modules, account_id,
     session.add(Account(id=account_id, email=f"{slug}-{account_id}@t.test",
                         default_org_id=org.id))
     session.flush()
+    # After the account exists: owner_account_id is a foreign key, so naming an
+    # owner before there is one to name is a constraint violation rather than a
+    # silent inconsistency — which is rather the point of having one column.
+    if is_owner:
+        org.owner_account_id = account_id
+        session.flush()
     session.add(OrganizationMember(org_id=org.id, account_id=account_id,
-                                   tier_key=tier_key, granted_by="grant",
-                                   is_owner=is_owner))
+                                   tier_key=tier_key, granted_by="grant"))
     session.flush()
     return org
 
