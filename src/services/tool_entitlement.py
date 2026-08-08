@@ -1,7 +1,7 @@
 """
 Module entitlement for the AGENT RUNTIME.
 
-cmdlabs-api gates its HTTP surface with require_module(): a member whose tier
+cmdlabs-api gates its HTTP surface with require_module(): a member whose role
 excludes Contacts gets a 404 from /api/contacts. That closes the front door
 only. An agent's tools read the same tables from this service, over their own
 sessions, and knew nothing about modules — so the same member could ask an
@@ -12,7 +12,7 @@ it is not in the model's tool list at all. Absent rather than refusing, which
 is both cheaper and quieter — the model does not narrate a capability the
 caller was not sold.
 
-    effective = the org's PLAN  ∩  organization_tiers.modules
+    effective = the org's PLAN  ∩  the member's ROLE
 
 kept deliberately identical to cmdlabs-api/src/services/modules.py, including
 the owner bypass. Two services enforcing entitlement differently is worse than
@@ -34,11 +34,11 @@ import logging
 from sqlalchemy.orm import Session
 
 from src.config import plans_registry as plans
+from src.config import roles_registry as roles
 from src.db.models import (
     Account,
     Organization,
     OrganizationMember,
-    OrganizationTier,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
     """
     row = (
         db.query(Organization.pinned_plan, Organization.owner_account_id,
-                 OrganizationMember.tier_key)
+                 OrganizationMember.role)
         .join(OrganizationMember, OrganizationMember.org_id == Organization.id)
         .filter(Organization.id == org_id,
                 OrganizationMember.account_id == account_id)
@@ -107,11 +107,11 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
         )
         return set()
 
-    pinned_plan, owner_account_id, tier_key = row
+    pinned_plan, owner_account_id, role = row
     ceiling = set(_ceiling(db, pinned_plan, owner_account_id))
 
-    # An owner reaches their org's whole ceiling regardless of their own tier,
-    # matching cmdlabs-api. Platform super admins likewise bypass the tier but
+    # An owner reaches their org's whole ceiling regardless of their own role,
+    # matching cmdlabs-api. Platform super admins likewise bypass the role but
     # not the ceiling of the org they are acting in.
     #
     # DERIVED from the org's owner column, matching cmdlabs-api deps.py. This
@@ -121,13 +121,9 @@ def effective_modules(db: Session, account_id: int, org_id: int) -> set[str]:
     if owner_account_id is not None and owner_account_id == account_id:
         return ceiling
 
-    tier = (
-        db.query(OrganizationTier.modules)
-        .filter(OrganizationTier.org_id == org_id,
-                OrganizationTier.tier_key == tier_key)
-        .scalar()
-    )
-    return ceiling & set(tier or ())
+    # No second query: a role is a constant, so what it opens is decided in
+    # process. This used to fetch organization_tiers.modules per tool build.
+    return set(roles.modules_for(role, sorted(ceiling)))
 
 
 def allowed_tool_configs(tool_configs: list, granted: set[str]) -> list:
