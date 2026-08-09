@@ -177,7 +177,11 @@ def _create_kimi_llm(
         temperature=KIMI_TEMPERATURE,
         top_p=KIMI_TOP_P,
         stream_usage=True,
-        model_kwargs={"thinking": {"type": "disabled"}},
+        # `thinking` is a Kimi extension, not an OpenAI parameter. It has to go
+        # through extra_body: the OpenAI SDK validates its own kwargs and raises
+        # on unknown ones rather than forwarding them, so model_kwargs would fail
+        # every request with "unexpected keyword argument 'thinking'".
+        extra_body={"thinking": {"type": "disabled"}},
     )
 
 
