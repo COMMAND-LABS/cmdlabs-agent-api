@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class ModelSelection(BaseModel):
     """User-selected model. `provider` must match the create_llm factory keys
-    ("openai" | "anthropic" | "google" | "ollama")."""
+    ("openai" | "anthropic" | "google" | "kimi" | "ollama")."""
 
     provider: str
     model: str

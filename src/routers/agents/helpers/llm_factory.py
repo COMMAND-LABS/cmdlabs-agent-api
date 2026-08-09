@@ -5,6 +5,7 @@ Supports:
 - OpenAI (gpt-4o-mini, gpt-4o, etc.)
 - Anthropic (claude-3-5-sonnet, claude-3-5-haiku, etc.)
 - Google (gemini-2.0-flash, gemini-1.5-pro, etc.)
+- Kimi (kimi-k2.6)
 - Ollama (llama3.2, mistral, etc.)
 """
 from typing import Any
@@ -15,6 +16,16 @@ DEFAULT_MODEL_CONFIG = {
     "provider": "openai",
     "model": "gpt-4o-mini",
 }
+
+# Kimi (Moonshot) serves the OpenAI wire format, so ChatOpenAI drives it with a
+# custom base_url rather than a dedicated integration package.
+# https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart
+KIMI_BASE_URL = "https://api.moonshot.ai/v1"
+
+# K2.6 rejects any temperature or top_p other than its own fixed pair, so these
+# are sent verbatim and the caller's temperature is ignored (see _create_kimi_llm).
+KIMI_TEMPERATURE = 0.6
+KIMI_TOP_P = 0.95
 
 
 def get_model_config(agent_config: dict[str, Any]) -> dict[str, str]:
@@ -49,7 +60,7 @@ def create_llm(
     Args:
         model_config: Dict with 'provider' and 'model' keys
         credentials: Dict mapping provider names to API keys
-                    e.g., {'openai': 'sk-...', 'anthropic': 'sk-ant-...'}
+                    e.g., {'openai': 'sk-...', 'anthropic': 'sk-ant-...', 'kimi': 'sk-...'}
         temperature: Model temperature (0-1)
 
     Returns:
@@ -67,6 +78,8 @@ def create_llm(
         return _create_anthropic_llm(model, credentials, temperature), provider
     if provider == 'google':
         return _create_google_llm(model, credentials, temperature), provider
+    if provider == 'kimi':
+        return _create_kimi_llm(model, credentials), provider
     if provider == 'ollama':
         return _create_ollama_llm(model, temperature), provider
     raise ValueError(f"Unsupported LLM provider: {provider}")
@@ -134,6 +147,40 @@ def _create_google_llm(
     )
 
 
+def _create_kimi_llm(
+    model: str,
+    credentials: dict[str, str],
+) -> BaseChatModel:
+    """
+    Create Kimi (Moonshot) LLM instance over the OpenAI-compatible endpoint.
+
+    Deliberately takes no temperature: K2.6 pins temperature and top_p to fixed
+    values and errors on anything else, so the caller's setting cannot be honored.
+
+    Thinking mode is disabled. It is the API default, but agents here run
+    multi-step tool calls, and with thinking enabled Kimi requires the prior
+    turn's `reasoning_content` to be echoed back on every follow-up request —
+    which the LangChain OpenAI adapter does not round-trip. Leaving it on would
+    fail the second tool-calling turn rather than the first.
+    """
+    from langchain_openai import ChatOpenAI
+
+    api_key = credentials.get('kimi')
+    if not api_key:
+        raise ValueError("Kimi API key not found. Please add your Kimi API key in account settings.")
+
+    return ChatOpenAI(
+        model=model,
+        api_key=api_key,
+        base_url=KIMI_BASE_URL,
+        streaming=True,
+        temperature=KIMI_TEMPERATURE,
+        top_p=KIMI_TOP_P,
+        stream_usage=True,
+        model_kwargs={"thinking": {"type": "disabled"}},
+    )
+
+
 def _create_ollama_llm(
     model: str,
     temperature: float,
@@ -170,6 +217,7 @@ def get_required_credential_type(provider: str) -> str | None:
         'openai': ServiceName.OPENAI_API_KEY,
         'anthropic': ServiceName.ANTHROPIC_API_KEY,
         'google': ServiceName.GOOGLE_GEMINI_API_KEY,
+        'kimi': ServiceName.KIMI_API_KEY,
         'ollama': None,  # Ollama is self-hosted, no API key needed
     }
 
