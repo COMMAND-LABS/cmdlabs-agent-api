@@ -8,6 +8,7 @@ factory, and PDF message-building used by the streaming agent endpoints.
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from langchain_core.messages import SystemMessage
 
 from src.core.schemas.PdfToFaqRequest import FaqList, PdfToFaqRequest
@@ -89,7 +90,10 @@ async def generate_faq(
     db.close()
 
     use_vision = request_body.pdfUseVision or False
-    human_message = build_pdf_message(
+    # CPU-bound PyMuPDF parse — run on the threadpool, never on the event loop
+    # (matches src/routers/agents/context.py).
+    human_message = await run_in_threadpool(
+        build_pdf_message,
         prompt=USER_PROMPT,
         pdf_base64=request_body.pdf,
         pdf_filename=request_body.pdfFilename,

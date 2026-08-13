@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
 from langchain_classic.agents import (
     AgentExecutor,
     create_openai_tools_agent,
@@ -397,7 +398,12 @@ async def prepare_agent_context(
     # durable copy already lives in the account's GCS bucket (referenced by
     # attachment_ref below); we do not re-download it here.
     if pdf_base64:
-        agent_input = build_pdf_message(
+        # PyMuPDF rasterization/text extraction is CPU-bound (seconds for a
+        # large PDF). Run it on the threadpool so it never stalls the event
+        # loop — one blocking parse here would freeze every other request on
+        # this instance, including in-flight SSE streams.
+        agent_input = await run_in_threadpool(
+            build_pdf_message,
             prompt=prompt,
             pdf_base64=pdf_base64,
             pdf_filename=pdf_filename,
